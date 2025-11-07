@@ -1,0 +1,258 @@
+/* ======================
+   General Layout
+====================== */
+.homepage {
+  height: 100vh;
+  background: linear-gradient(135deg, #ffffff, #f6f9f2);
+  /* soft depth */
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ======================
+   Navbar
+====================== */
+.navbar {
+  background: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.9rem 3rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.logo-img {
+  height: 90px;
+  width: 80px;
+}
+
+.logo2-img {
+  width: 300px;   /* adjust as needed */
+  height: auto;
+  display: block;
+  margin: 0 auto; /* centers inside h2 */
+}
+
+
+/* ======================
+   Hero Section
+====================== */
+.hero-section {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  /* vertical center */
+  justify-content: center;
+  /* horizontal center */
+  background: transparent;
+  position: relative;
+}
+
+/* ======================
+   Login Box
+====================== */
+.login-box {
+  background: #fff;
+  padding: 2rem 3rem;
+  border-radius: 15px;
+  text-align: center;
+  width: 350px;
+
+  /* Softer Neon Glow */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1),
+    0 0 12px rgba(116, 135, 46, 0.3);
+  transition: all 0.3s ease-in-out;
+}
+
+.login-box:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15),
+    0 0 18px rgba(116, 135, 46, 0.4);
+}
+
+.login-box h2 {
+  color: #282763;
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+/* ======================
+   Input Fields
+====================== */
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  padding: 12px 15px;
+  margin: 10px 0;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 16px;
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.3s ease-in-out;
+}
+
+.input-field:focus {
+  border-color: #74872e;
+  box-shadow: 0 0 6px rgba(116, 135, 46, 0.5);
+}
+
+/* ======================
+   Login Button
+====================== */
+.login-btn {
+  width: 100%;
+  padding: 12px 15px;
+  /* matches inputs */
+  margin: 10px 0;
+  border: none;
+  border-radius: 8px;
+  /* same as inputs */
+  background-color: #74872e;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease-in-out;
+  box-shadow: 0 0 6px rgba(116, 135, 46, 0.4);
+}
+
+.login-btn:hover {
+  background-color: #5e6c24;
+  /* subtle hover */
+  transform: scale(1.02);
+  /* gentle lift */
+  box-shadow: 0 0 12px rgba(116, 135, 46, 0.5);
+}
+
+/* ======================
+   Forget Password Page
+====================== */
+
+.forgot-password {
+  border: transparent;
+  background: transparent;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  color: #282763;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+
+.forget-password-box {
+  background: #fff;
+  padding: 2rem 3rem;
+  border-radius: 15px;
+  text-align: center;
+  width: 350px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1),
+    0 0 12px rgba(116, 135, 46, 0.3);
+  transition: all 0.3s ease-in-out;
+}
+
+.forget-password-box:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15),
+    0 0 18px rgba(116, 135, 46, 0.4);
+}
+
+.forget-password-box h2 {
+  color: #282763;
+  margin-bottom: 1rem;
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+.forget-password-box p {
+  color: #444;
+  font-size: 0.95rem;
+  margin-bottom: 1.5rem;
+  line-height: 1.4;
+}
+
+
+/* ======================
+   Responsive Design
+====================== */
+
+/* Tablets (<= 1024px) */
+@media (max-width: 1024px) {
+  .navbar {
+    padding: 1rem 2rem;
+  }
+
+  .logo-img {
+    height: 70px;
+    width: 80px;
+  }
+
+  .login-box {
+    width: 320px;
+    padding: 1.5rem 2rem;
+  }
+}
+
+/* Mobile (<= 768px) */
+@media (max-width: 768px) {
+  .navbar {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 1rem 1.5rem;
+  }
+
+  .logo-img {
+    height: 60px;
+  width: 80px;
+  }
+
+  .hero-section {
+    padding: 1rem;
+  }
+
+  .login-box {
+    width: 90%;
+    /* take almost full width */
+    max-width: 350px;
+    /* prevent too wide */
+    padding: 1.5rem;
+  }
+}
+
+/* Small Mobile (<= 480px) */
+@media (max-width: 480px) {
+  .navbar {
+    padding: 0.8rem 1rem;
+  }
+
+  .logo-img {
+    height: 50px;
+    width: 70px;
+  }
+
+  .login-box {
+    width: 95%;
+    padding: 1rem;
+  }
+
+  .login-box h2 {
+    font-size: 1.5rem;
+  }
+
+  input[type="text"],
+  input[type="password"],
+  .login-btn {
+    font-size: 14px;
+    padding: 10px 12px;
+  }
+
+  .forgot-password {
+    font-size: 0.8rem;
+  }
+}

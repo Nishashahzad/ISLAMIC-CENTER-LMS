@@ -1,0 +1,424 @@
+/* Student Courses Enhanced Styles */
+.students-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.students-container h1 {
+  color: #2c3e50;
+  margin-bottom: 30px;
+  text-align: center;
+  font-size: 2.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Student Info Card */
+.student-info-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 25px;
+  border-radius: 16px;
+  margin-bottom: 30px;
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+  border: none;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-row strong {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.info-row span {
+  font-weight: 500;
+  color: white;
+}
+
+.year-badge {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Courses Section */
+.courses-section h2 {
+  color: #2c3e50;
+  margin-bottom: 25px;
+  font-size: 1.8rem;
+  font-weight: 600;
+  text-align: center;
+  position: relative;
+}
+
+.courses-section h2::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 2px;
+}
+
+/* Subjects Grid */
+.subjects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 25px;
+  margin-top: 20px;
+}
+
+.subject-card {
+  background: white;
+  border: 1px solid #e8ecef;
+  border-radius: 16px;
+  padding: 25px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.subject-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.subject-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  border-color: #667eea;
+}
+
+/* Subject Header */
+.subject-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.subject-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 18px;
+  font-weight: 700;
+  flex: 1;
+  margin-right: 15px;
+  line-height: 1.4;
+}
+
+.lecture-count {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+/* Teacher Section */
+.teacher-section {
+  padding: 15px 0;
+  border-top: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f0f0f0;
+  background: #f8f9fa;
+  border-radius: 10px;
+  margin: 0 -5px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.teacher-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.teacher-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 600;
+}
+
+.teacher-name {
+  font-size: 14px;
+  color: #2c3e50;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Icons Section */
+.subject-icons {
+  margin: 10px 0;
+}
+
+.icon-group {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.icon-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  padding: 12px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #f8f9fa;
+  border: 1px solid transparent;
+}
+
+.icon-item:hover {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.icon-item:hover .icon,
+.icon-item:hover .icon-label {
+  color: white;
+}
+
+.icon {
+  font-size: 20px;
+  transition: all 0.3s ease;
+}
+
+.icon-label {
+  font-size: 10px;
+  color: #666;
+  text-align: center;
+  line-height: 1.2;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(231, 76, 60, 0.4);
+  border: 2px solid white;
+}
+
+/* Summary Card */
+.summary-card {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  margin-top: 30px;
+  border: 1px solid #e8ecef;
+}
+
+.summary-card h3 {
+  margin: 0 0 25px 0;
+  color: #2c3e50;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  position: relative;
+}
+
+.summary-card h3::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 3px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 2px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+}
+
+.summary-item {
+  text-align: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 12px;
+  border: 1px solid #e8ecef;
+  transition: all 0.3s ease;
+}
+
+.summary-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  border-color: #667eea;
+}
+
+.summary-value {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #667eea;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.summary-label {
+  font-size: 13px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-weight: 600;
+}
+
+/* Loading and Error States */
+.loading {
+  text-align: center;
+  padding: 60px;
+  font-size: 18px;
+  color: #667eea;
+  font-weight: 600;
+}
+
+.error-message {
+  background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
+  border: 1px solid #fdcb6e;
+  border-radius: 12px;
+  padding: 25px;
+  margin: 20px 0;
+  text-align: center;
+}
+
+.error-message h3 {
+  margin: 0 0 15px 0;
+  color: #e17055;
+  font-size: 1.3rem;
+}
+
+.no-data {
+  text-align: center;
+  padding: 50px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  color: #6c757d;
+  font-size: 16px;
+  font-weight: 500;
+  border: 2px dashed #dee2e6;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .students-container {
+    padding: 15px;
+  }
+  
+  .students-container h1 {
+    font-size: 2rem;
+  }
+  
+  .subjects-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .subject-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  
+  .lecture-count {
+    align-self: flex-start;
+  }
+  
+  .icon-group {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  
+  .summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+  }
+  
+  .student-info-card {
+    padding: 20px;
+  }
+  
+  .info-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+  }
+}
+
+@media (max-width: 480px) {
+  .icon-group {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .summary-value {
+    font-size: 1.8rem;
+  }
+  
+  .subject-card {
+    padding: 20px;
+  }
+}
