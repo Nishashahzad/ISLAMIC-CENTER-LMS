@@ -11,6 +11,11 @@ import Enrollments from "./components/Enrollments";
 import Reports from "./components/Reports";
 import Payments from "./components/Payments";
 import Settings from "./components/Settings";
+import StudentNotifications from "./components/StudentNotifications";
+import StudentMaterials from "./components/StudentMaterials";
+import StudentLectures from "./components/StudentLectures";
+import StudentQuizzes from "./components/StudentQuizzes";
+import StudentAssignments from "./components/StudentAssignments";
 import StudentLayout from "./components/StudentLayout";
 import StudentDashboard from "./components/StudentDashboard";
 import StudentCourses from "./components/StudentCourses";
@@ -46,6 +51,11 @@ function App() {
           <Route index element={<StudentDashboard />} />
           <Route path="courses" element={<StudentCourses />} />
           <Route path="profile" element={<StudentProfile />} />
+          <Route path="notifications" element={<StudentNotifications />} />
+          <Route path="materials" element={<StudentMaterials />} />
+          <Route path="lectures" element={<StudentLectures />} />
+          <Route path="quizzes" element={<StudentQuizzes />} />
+          <Route path="assignments" element={<StudentAssignments />} />
         </Route>
 
         {/* Teacher Routes */}

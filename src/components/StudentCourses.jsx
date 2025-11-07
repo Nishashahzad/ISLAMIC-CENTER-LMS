@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useNavigate } from "react-router-dom";
 import "./StudentCourses.css";
 
 const StudentCourses = () => {
@@ -8,6 +8,7 @@ const StudentCourses = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [studentWithYear, setStudentWithYear] = useState(null);
+  const navigate = useNavigate();
 
   // Fetch complete student data including year
   useEffect(() => {
@@ -65,14 +66,12 @@ const StudentCourses = () => {
       }
 
       try {
-        // Use the NEW endpoint that provides exact matching
         const response = await fetch(`http://localhost:8000/student_subjects/${yearNumber}`);
         if (!response.ok) throw new Error('Failed to fetch subjects');
         
         const data = await response.json();
         
         if (data.success) {
-          // Fetch stats for each subject
           const subjectsWithStats = await Promise.all(
             data.subjects.map(async (subject) => {
               const statsResponse = await fetch(`http://localhost:8000/subject_stats/${encodeURIComponent(subject.subject_name)}`);
@@ -85,7 +84,7 @@ const StudentCourses = () => {
                   assignments: 0, 
                   quizzes: 0, 
                   notifications: 0,
-                  materials: Math.floor(Math.random() * 5) + 1 // Random materials count for demo
+                  materials: Math.floor(Math.random() * 5) + 1
                 }
               };
             })
@@ -112,30 +111,47 @@ const StudentCourses = () => {
                      studentData?.current_year || 
                      "Not assigned";
 
-  // Function to handle actions
-  const handleAction = (action, subjectName) => {
-    console.log(`${action} for ${subjectName}`);
-    // Add your implementation for each action
-    switch(action) {
-      case 'download':
-        // Download files logic
-        break;
-      case 'assignments':
-        // View assignments logic
-        break;
-      case 'quizzes':
-        // View quizzes logic
-        break;
-      case 'notifications':
-        // View notifications logic
-        break;
-      case 'materials':
-        // View materials logic
-        break;
-      default:
-        break;
+  // Function to handle subject box click
+// In StudentCourses.jsx - update the handleAction functions:
+
+// Function to handle subject box click
+const handleSubjectClick = (subject) => {
+  const studentId = studentWithYear?.userid || studentData?.userid || studentData?.id;
+  navigate(`/student-dashboard/${studentId}/lectures`, { 
+    state: { 
+      subject: subject.subject_name,
+      teacher: subject.teachers && subject.teachers.length > 0 ? subject.teachers[0] : null,
+      studentData: studentWithYear || studentData
     }
+  });
+};
+
+// Function to handle icon actions
+const handleAction = (action, subject) => {
+  const studentId = studentWithYear?.userid || studentData?.userid || studentData?.id;
+  const navigationData = {
+    subject: subject.subject_name,
+    teacher: subject.teachers && subject.teachers.length > 0 ? subject.teachers[0] : null,
+    studentData: studentWithYear || studentData
   };
+
+  switch(action) {
+    case 'assignments':
+      navigate(`/student-dashboard/${studentId}/assignments`, { state: navigationData });
+      break;
+    case 'quizzes':
+      navigate(`/student-dashboard/${studentId}/quizzes`, { state: navigationData });
+      break;
+    case 'notifications':
+      navigate(`/student-dashboard/${studentId}/notifications`, { state: navigationData });
+      break;
+    case 'materials':
+      navigate(`/student-dashboard/${studentId}/materials`, { state: navigationData });
+      break;
+    default:
+      break;
+  }
+};
 
   if (loading) {
     return (
@@ -196,7 +212,12 @@ const StudentCourses = () => {
         ) : (
           <div className="subjects-grid">
             {subjects.map((subject, index) => (
-              <div key={index} className="subject-card">
+              <div 
+                key={index} 
+                className="subject-card"
+                onClick={() => handleSubjectClick(subject)}
+                style={{ cursor: 'pointer' }}
+              >
                 {/* Header Section */}
                 <div className="subject-header">
                   <h3>{subject.subject_name}</h3>
@@ -217,13 +238,16 @@ const StudentCourses = () => {
                   </div>
                 </div>
 
-                {/* Icons Section - All icons in one row */}
+                {/* Icons Section */}
                 <div className="subject-icons">
                   <div className="icon-group">
                     {/* Assignments Icon */}
                     <div 
                       className="icon-item"
-                      onClick={() => handleAction('assignments', subject.subject_name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAction('assignments', subject);
+                      }}
                     >
                       <span className="icon">📝</span>
                       <span className="icon-label">Assignments</span>
@@ -237,7 +261,10 @@ const StudentCourses = () => {
                     {/* Quizzes Icon */}
                     <div 
                       className="icon-item"
-                      onClick={() => handleAction('quizzes', subject.subject_name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAction('quizzes', subject);
+                      }}
                     >
                       <span className="icon">📊</span>
                       <span className="icon-label">Quizzes</span>
@@ -251,7 +278,10 @@ const StudentCourses = () => {
                     {/* Notifications Icon */}
                     <div 
                       className="icon-item"
-                      onClick={() => handleAction('notifications', subject.subject_name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAction('notifications', subject);
+                      }}
                     >
                       <span className="icon">🔔</span>
                       <span className="icon-label">Alerts</span>
@@ -265,7 +295,10 @@ const StudentCourses = () => {
                     {/* Materials Icon */}
                     <div 
                       className="icon-item"
-                      onClick={() => handleAction('materials', subject.subject_name)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAction('materials', subject);
+                      }}
                     >
                       <span className="icon">📚</span>
                       <span className="icon-label">Materials</span>
