@@ -11,7 +11,13 @@ import shutil
 from fastapi import UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime
-
+from fastapi import FastAPI, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
+import re  
+from typing import List, Optional
+from pydantic import BaseModel
+from datetime import datetime
+import json
 
 app = FastAPI()
 
@@ -1682,8 +1688,1750 @@ def increment_material_download_count(material_id: int):
         raise HTTPException(status_code=500, detail=f"Error updating download count: {str(e)}")
 
 
+
+# ------------------- FILE PATH RESOLUTION FUNCTIONS FOR LECTURES -------------------
+
+
+def fix_file_path(file_path, teacher_id):
+    """Fix common file path issues with enhanced logic"""
+    if not file_path or file_path == 'NULL':
+        return None
+    
+    path = file_path
+    
+    # Apply common fixes
+    fixes = [
+        ('uploadselectures', 'uploads/lectures'),
+        ('uploadsassignments', 'uploads/assignments'),
+        ('uploadsmaterials', 'uploads/materials'),
+        ('@', '/'),
+        ('teacher_harma', 'teacher_hamna'),
+        ('teacher_harma_5674', 'teacher_hamna_5674'),
+        ('//', '/'),
+        ('\\', '/'),  # Convert backslashes to forward slashes
+    ]
+    
+    for wrong, correct in fixes:
+        path = path.replace(wrong, correct)
+    
+    # Ensure it's a proper path
+    if not path.startswith('uploads/'):
+        # Try to reconstruct the path
+        if 'lectures' in path:
+            path = f"uploads/lectures/{path}"
+        elif 'assignments' in path:
+            path = f"uploads/assignments/{path}"
+        elif 'materials' in path:
+            path = f"uploads/materials/{path}"
+        else:
+            path = f"uploads/lectures/{path}"
+    
+    # Clean up the path
+    path = os.path.normpath(path).replace('\\', '/')
+    
+    return path
+
+def search_file_by_name(filename, teacher_id):
+    """Enhanced file search with multiple strategies"""
+    if not filename:
+        return None
+    
+    search_dirs = [
+        f"uploads/lectures/teacher_{teacher_id}",
+        f"uploads/lectures/teacher_{teacher_id}_5674",
+        f"uploads/lectures/{teacher_id}",
+        "uploads/lectures",
+        f"uploads/lectures/teacher_{teacher_id.lower()}",
+        f"uploads/lectures/teacher_{teacher_id.upper()}",
+    ]
+    
+    # Strategy 1: Exact match
+    for search_dir in search_dirs:
+        if not os.path.exists(search_dir):
+            continue
+        
+        exact_path = os.path.join(search_dir, filename)
+        if os.path.exists(exact_path):
+            return exact_path
+    
+    # Strategy 2: Case-insensitive match
+    for search_dir in search_dirs:
+        if not os.path.exists(search_dir):
+            continue
+        
+        try:
+            for file in os.listdir(search_dir):
+                if file.lower() == filename.lower():
+                    return os.path.join(search_dir, file)
+        except OSError:
+            continue
+    
+    # Strategy 3: Partial filename match
+    filename_without_ext = os.path.splitext(filename)[0]
+    for search_dir in search_dirs:
+        if not os.path.exists(search_dir):
+            continue
+        
+        try:
+            for file in os.listdir(search_dir):
+                if filename_without_ext.lower() in file.lower():
+                    return os.path.join(search_dir, file)
+        except OSError:
+            continue
+    
+    return None
+
+def search_file_by_name(filename, teacher_id):
+    """Search for file by name in teacher directories"""
+    search_dirs = [
+        f"uploads/lectures/teacher_{teacher_id}",
+        f"uploads/lectures/teacher_{teacher_id}_5674",
+        "uploads/lectures",
+    ]
+    
+    for search_dir in search_dirs:
+        if not os.path.exists(search_dir):
+            continue
+        
+        # Exact match
+        exact_path = os.path.join(search_dir, filename)
+        if os.path.exists(exact_path):
+            return exact_path
+        
+        # Case-insensitive match
+        try:
+            for file in os.listdir(search_dir):
+                if file.lower() == filename.lower():
+                    return os.path.join(search_dir, file)
+        except OSError:
+            continue
+    
+    return None
+
+def find_any_teacher_file(teacher_id):
+    """Find any file in teacher's directory as fallback"""
+    teacher_dirs = [
+        f"uploads/lectures/teacher_{teacher_id}",
+        f"uploads/lectures/teacher_{teacher_id}_5674",
+    ]
+    
+    for teacher_dir in teacher_dirs:
+        if os.path.exists(teacher_dir):
+            try:
+                files = os.listdir(teacher_dir)
+                if files:
+                    first_file = files[0]
+                    return {
+                        'path': os.path.join(teacher_dir, first_file),
+                        'name': first_file
+                    }
+            except OSError:
+                continue
+    
+    return None
+
+def search_with_different_extensions(filename, teacher_id):
+    """Search for file with different extensions"""
+    name_without_ext = os.path.splitext(filename)[0]
+    extensions = ['.mp4', '.MP4', '.pdf', '.PDF', '.doc', '.DOC', '.docx', '.DOCX']
+    
+    search_dirs = [
+        f"uploads/lectures/teacher_{teacher_id}",
+        f"uploads/lectures/teacher_{teacher_id}_5674",
+    ]
+    
+    for search_dir in search_dirs:
+        if not os.path.exists(search_dir):
+            continue
+        
+        for ext in extensions:
+            test_filename = f"{name_without_ext}{ext}"
+            test_path = os.path.join(search_dir, test_filename)
+            if os.path.exists(test_path):
+                return test_path
+    
+    return None
+
+def find_actual_lecture_file(lecture, teacher_id):
+    """Find the actual file location with multiple fallback strategies"""
+    
+    # Strategy 1: Check the path from database
+    db_path = lecture.get('file_path')
+    db_filename = lecture.get('file_name')
+    
+    if db_path and db_path != 'NULL':
+        # Fix common path issues
+        fixed_path = fix_file_path(db_path, teacher_id)
+        if fixed_path and os.path.exists(fixed_path):
+            return {
+                'exists': True,
+                'actual_path': fixed_path,
+                'url': f"http://localhost:8000/{fixed_path}",
+                'status': 'found'
+            }
+    
+    # Strategy 2: Search by filename in teacher directories
+    if db_filename and db_filename != 'NULL':
+        found_path = search_file_by_name(db_filename, teacher_id)
+        if found_path:
+            return {
+                'exists': True,
+                'actual_path': found_path,
+                'url': f"http://localhost:8000/{found_path}",
+                'status': 'found_by_search'
+            }
+    
+    # Strategy 3: Search any file in teacher directories (fallback)
+    any_file = find_any_teacher_file(teacher_id)
+    if any_file:
+        return {
+            'exists': True,
+            'actual_path': any_file['path'],
+            'url': f"http://localhost:8000/{any_file['path']}",
+            'status': 'found_any_file'
+        }
+    
+    # Strategy 4: Check if file exists with different extensions
+    if db_filename:
+        found_with_extension = search_with_different_extensions(db_filename, teacher_id)
+        if found_with_extension:
+            return {
+                'exists': True,
+                'actual_path': found_with_extension,
+                'url': f"http://localhost:8000/{found_with_extension}",
+                'status': 'found_different_extension'
+            }
+    
+    return {
+        'exists': False,
+        'actual_path': None,
+        'url': None,
+        'status': 'not_found'
+    }
+
+# ------------------- ENHANCED LECTURE ENDPOINTS -------------------
+
+# Replace your existing get_lectures endpoint with this enhanced version
+@app.get("/lectures/{teacher_userId}/{subject_name}")
+def get_lectures(teacher_userId: str, subject_name: str):
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId, u.fullName as teacher_name
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE u.userId = %s AND l.subject_name = %s 
+               ORDER BY l.upload_date DESC""",
+            (teacher_userId, subject_name)
+        )
+        
+        lectures = cursor.fetchall()
+        
+        # Process lectures to add file existence info
+        processed_lectures = []
+        for lecture in lectures:
+            lecture_dict = dict(lecture)
+            file_info = find_actual_lecture_file(lecture_dict, teacher_userId)
+            lecture_dict['file_exists'] = file_info['exists']
+            lecture_dict['file_status'] = file_info['status']
+            lecture_dict['resolved_file_url'] = file_info['url']
+            processed_lectures.append(lecture_dict)
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "lectures": processed_lectures, 
+            "success": True,
+            "file_check_summary": {
+                "total": len(processed_lectures),
+                "exists": sum(1 for l in processed_lectures if l['file_exists']),
+                "missing": sum(1 for l in processed_lectures if not l['file_exists'])
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching lectures: {str(e)}")
+
+# NEW ENDPOINT: Enhanced lecture streaming with file resolution
+@app.get("/lectures/{lecture_id}/stream")
+def stream_lecture_file(lecture_id: int):
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get lecture from database
+        cursor.execute("SELECT * FROM lectures WHERE id = %s", (lecture_id,))
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            raise HTTPException(status_code=404, detail="Lecture not found")
+        
+        # Get teacher_id for file resolution
+        cursor.execute("SELECT userId FROM users WHERE id = %s", (lecture['teacher_id'],))
+        teacher = cursor.fetchone()
+        teacher_id = teacher['userId'] if teacher else None
+        
+        file_info = find_actual_lecture_file(lecture, teacher_id)
+        
+        if not file_info['exists']:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Lecture file not found. Status: {file_info['status']}"
+            )
+        
+        cursor.close()
+        db.close()
+        
+        return FileResponse(
+            file_info['actual_path'],
+            media_type='application/octet-stream',
+            filename=lecture.get('file_name') or f"lecture_{lecture_id}"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error streaming lecture: {str(e)}")
+
+# NEW ENDPOINT: Enhanced lecture download with file resolution
+@app.get("/lectures/{lecture_id}/download")
+def download_lecture_file(lecture_id: int):
+    """Enhanced download endpoint with file existence check"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get lecture from database
+        cursor.execute("SELECT * FROM lectures WHERE id = %s", (lecture_id,))
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            raise HTTPException(status_code=404, detail="Lecture not found")
+        
+        # Get teacher_id for file resolution
+        cursor.execute("SELECT userId FROM users WHERE id = %s", (lecture['teacher_id'],))
+        teacher = cursor.fetchone()
+        teacher_id = teacher['userId'] if teacher else None
+        
+        file_info = find_actual_lecture_file(lecture, teacher_id)
+        
+        if not file_info['exists']:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Lecture file not found. Status: {file_info['status']}"
+            )
+        
+        # Update download count
+        cursor.execute(
+            "UPDATE lectures SET downloads = downloads + 1 WHERE id = %s",
+            (lecture_id,)
+        )
+        db.commit()
+        
+        cursor.close()
+        db.close()
+        
+        return FileResponse(
+            file_info['actual_path'],
+            media_type='application/octet-stream',
+            filename=lecture.get('file_name') or f"lecture_{lecture_id}"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading lecture: {str(e)}")
+
+# NEW ENDPOINT: Diagnostic endpoint to check uploads structure
+@app.get("/admin/check-uploads")
+def check_uploads_directory():
+    """Check what files actually exist in uploads directory"""
+    base_path = "uploads/lectures"
+    
+    if not os.path.exists(base_path):
+        return {
+            "success": False,
+            "message": "Base uploads directory doesn't exist",
+            "suggested_fix": "Create the directory structure: mkdir -p uploads/lectures"
+        }
+    
+    # Walk through all directories and files
+    all_files = {}
+    for root, dirs, files in os.walk(base_path):
+        relative_path = root.replace(base_path, "").lstrip('/')
+        all_files[relative_path or '/'] = files
+    
+    return {
+        "success": True,
+        "base_path": base_path,
+        "exists": os.path.exists(base_path),
+        "files_structure": all_files
+    }
+
+# NEW ENDPOINT: Check files for specific teacher
+@app.get("/admin/check-teacher-files/{teacher_id}")
+def check_teacher_files(teacher_id: str):
+    """Check files for a specific teacher"""
+    possible_dirs = [
+        f"uploads/lectures/teacher_{teacher_id}",
+        f"uploads/lectures/teacher_{teacher_id}_5674",
+        f"uploads/lectures/{teacher_id}",
+    ]
+    
+    results = {}
+    for directory in possible_dirs:
+        exists = os.path.exists(directory)
+        files = []
+        if exists:
+            try:
+                files = os.listdir(directory)
+            except Exception as e:
+                files = [f"Error: {str(e)}"]
+        
+        results[directory] = {
+            "exists": exists,
+            "files": files
+        }
+    
+    return {
+        "success": True,
+        "teacher_id": teacher_id,
+        "directories_checked": results
+    }
 # Health check endpoint
 @app.get("/")
 def read_root():
     return {"message": "Islamic Center API is running!"}
 
+# ------------------- ENHANCED DOWNLOAD ENDPOINTS -------------------
+
+@app.get("/download/lecture/{lecture_id}")
+def download_lecture(lecture_id: int):
+    """Enhanced lecture download with proper file resolution"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get lecture from database
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId 
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            raise HTTPException(status_code=404, detail="Lecture not found")
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name') or f"lecture_{lecture_id}"
+        
+        if not file_path or file_path == 'NULL':
+            raise HTTPException(status_code=404, detail="No file attached to this lecture")
+        
+        # Fix common file path issues
+        fixed_path = fix_file_path(file_path, teacher_id)
+        
+        if not fixed_path or not os.path.exists(fixed_path):
+            # Try to find the file using alternative methods
+            found_path = search_file_by_name(file_name, teacher_id)
+            if found_path:
+                fixed_path = found_path
+            else:
+                raise HTTPException(status_code=404, detail="Lecture file not found on server")
+        
+        # Update download count
+        cursor.execute(
+            "UPDATE lectures SET downloads = downloads + 1 WHERE id = %s",
+            (lecture_id,)
+        )
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        # Return file for download
+        return FileResponse(
+            fixed_path,
+            media_type='application/octet-stream',
+            filename=file_name
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading lecture: {str(e)}")
+
+# Similar endpoint for materials
+@app.get("/download/material/{material_id}")
+def download_material(material_id: int):
+    """Download material file"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get material from database
+        cursor.execute(
+            """SELECT m.*, u.userId as teacher_userId 
+               FROM materials m 
+               JOIN users u ON m.teacher_id = u.id 
+               WHERE m.id = %s""", 
+            (material_id,)
+        )
+        material = cursor.fetchone()
+        
+        if not material:
+            raise HTTPException(status_code=404, detail="Material not found")
+        
+        teacher_id = material['teacher_userId']
+        file_path = material.get('file_path')
+        file_name = material.get('file_name') or f"material_{material_id}"
+        
+        if not file_path or file_path == 'NULL':
+            raise HTTPException(status_code=404, detail="No file attached to this material")
+        
+        # Fix file path if needed
+        fixed_path = file_path
+        if not os.path.exists(fixed_path):
+            # Try alternative path resolution for materials
+            material_dir = os.path.join(UPLOAD_DIR, "materials", teacher_id)
+            alt_path = os.path.join(material_dir, file_name)
+            if os.path.exists(alt_path):
+                fixed_path = alt_path
+            else:
+                raise HTTPException(status_code=404, detail="Material file not found on server")
+        
+        # Update download count
+        cursor.execute(
+            "UPDATE materials SET downloads = downloads + 1 WHERE id = %s",
+            (material_id,)
+        )
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        # Return file for download
+        return FileResponse(
+            fixed_path,
+            media_type='application/octet-stream',
+            filename=file_name
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error downloading material: {str(e)}")
+    
+    
+# ------------------- DIAGNOSTIC & TESTING ENDPOINTS -------------------
+
+@app.get("/test/lecture/{lecture_id}/info")
+def test_lecture_info(lecture_id: int):
+    """Test endpoint to check lecture file information"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId, u.fullName as teacher_name
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            return {"success": False, "error": "Lecture not found"}
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name')
+        
+        # Check file existence using multiple methods
+        file_checks = {}
+        
+        # 1. Check original file path
+        if file_path and file_path != 'NULL':
+            file_checks['original_path'] = {
+                'path': file_path,
+                'exists': os.path.exists(file_path),
+                'absolute_path': os.path.abspath(file_path) if file_path else None
+            }
+        
+        # 2. Check fixed file path
+        fixed_path = fix_file_path(file_path, teacher_id)
+        file_checks['fixed_path'] = {
+            'path': fixed_path,
+            'exists': os.path.exists(fixed_path) if fixed_path else False,
+            'absolute_path': os.path.abspath(fixed_path) if fixed_path else None
+        }
+        
+        # 3. Search by filename
+        if file_name:
+            found_path = search_file_by_name(file_name, teacher_id)
+            file_checks['filename_search'] = {
+                'filename': file_name,
+                'found_path': found_path,
+                'exists': os.path.exists(found_path) if found_path else False
+            }
+        
+        # 4. Check teacher directories
+        teacher_dirs = {}
+        possible_dirs = [
+            f"uploads/lectures/teacher_{teacher_id}",
+            f"uploads/lectures/teacher_{teacher_id}_5674",
+            f"uploads/lectures/{teacher_id}",
+            "uploads/lectures"
+        ]
+        
+        for directory in possible_dirs:
+            exists = os.path.exists(directory)
+            files = []
+            if exists:
+                try:
+                    files = os.listdir(directory)
+                except Exception as e:
+                    files = [f"Error: {str(e)}"]
+            
+            teacher_dirs[directory] = {
+                "exists": exists,
+                "files": files
+            }
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "lecture_info": {
+                "id": lecture['id'],
+                "title": lecture['title'],
+                "teacher_id": teacher_id,
+                "teacher_name": lecture['teacher_name'],
+                "file_path": file_path,
+                "file_name": file_name,
+                "file_size": lecture.get('file_size'),
+                "upload_date": lecture.get('upload_date')
+            },
+            "file_checks": file_checks,
+            "teacher_directories": teacher_dirs,
+            "file_exists": any(check.get('exists') for check in file_checks.values() if 'exists' in check)
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/test/uploads-structure")
+def test_uploads_structure():
+    """Check the complete uploads directory structure"""
+    base_path = "uploads"
+    
+    if not os.path.exists(base_path):
+        return {
+            "success": False,
+            "message": "Uploads directory doesn't exist",
+            "suggested_fix": "Create directory: mkdir -p uploads/lectures uploads/assignments uploads/materials"
+        }
+    
+    structure = {}
+    for root, dirs, files in os.walk(base_path):
+        relative_path = root.replace(base_path, "").lstrip('/')
+        structure[relative_path or '/'] = {
+            "directories": dirs,
+            "files": files,
+            "file_count": len(files)
+        }
+    
+    return {
+        "success": True,
+        "base_path": os.path.abspath(base_path),
+        "structure": structure
+    }
+
+@app.get("/test/teacher-files/{teacher_id}")
+def test_teacher_files(teacher_id: str):
+    """Check all files for a specific teacher"""
+    results = {}
+    
+    # Check all possible file types
+    file_types = ["lectures", "assignments", "materials"]
+    
+    for file_type in file_types:
+        possible_dirs = [
+            f"uploads/{file_type}/teacher_{teacher_id}",
+            f"uploads/{file_type}/teacher_{teacher_id}_5674",
+            f"uploads/{file_type}/{teacher_id}",
+            f"uploads/{file_type}"
+        ]
+        
+        type_results = {}
+        for directory in possible_dirs:
+            exists = os.path.exists(directory)
+            files = []
+            if exists:
+                try:
+                    files = os.listdir(directory)
+                    # Get file details
+                    file_details = []
+                    for file in files:
+                        file_path = os.path.join(directory, file)
+                        file_details.append({
+                            "name": file,
+                            "size": os.path.getsize(file_path) if os.path.isfile(file_path) else 0,
+                            "modified": os.path.getmtime(file_path) if os.path.isfile(file_path) else 0
+                        })
+                    files = file_details
+                except Exception as e:
+                    files = [f"Error: {str(e)}"]
+            
+            type_results[directory] = {
+                "exists": exists,
+                "files": files,
+                "file_count": len(files) if isinstance(files, list) else 0
+            }
+        
+        results[file_type] = type_results
+    
+    return {
+        "success": True,
+        "teacher_id": teacher_id,
+        "file_structure": results
+    }
+
+@app.get("/test/download/{lecture_id}")
+def test_download_lecture(lecture_id: int):
+    """Simple test endpoint for download functionality"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId 
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            return {"success": False, "error": "Lecture not found"}
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name')
+        
+        # Test file resolution
+        fixed_path = fix_file_path(file_path, teacher_id)
+        file_exists = fixed_path and os.path.exists(fixed_path)
+        
+        if not file_exists and file_name:
+            found_path = search_file_by_name(file_name, teacher_id)
+            if found_path:
+                fixed_path = found_path
+                file_exists = True
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "lecture_id": lecture_id,
+            "title": lecture['title'],
+            "teacher_id": teacher_id,
+            "original_file_path": file_path,
+            "file_name": file_name,
+            "resolved_file_path": fixed_path,
+            "file_exists": file_exists,
+            "download_url": f"http://localhost:8000/download/lecture/{lecture_id}" if file_exists else None,
+            "test_info_url": f"http://localhost:8000/test/lecture/{lecture_id}/info"
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    
+# ------------------- ENHANCED DIAGNOSTIC ENDPOINTS -------------------
+
+# ------------------- VIEW LECTURE ENDPOINT -------------------
+
+@app.get("/view/lecture/{lecture_id}")
+def view_lecture(lecture_id: int):
+    """View lecture file in browser (for supported file types)"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get lecture from database
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId 
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            raise HTTPException(status_code=404, detail="Lecture not found")
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name')
+        
+        if not file_path or file_path == 'NULL':
+            raise HTTPException(status_code=404, detail="No file attached to this lecture")
+        
+        # Fix common file path issues
+        fixed_path = fix_file_path(file_path, teacher_id)
+        
+        if not fixed_path or not os.path.exists(fixed_path):
+            # Try to find the file using alternative methods
+            found_path = search_file_by_name(file_name, teacher_id)
+            if found_path:
+                fixed_path = found_path
+            else:
+                raise HTTPException(status_code=404, detail="Lecture file not found on server")
+        
+        # Determine content type based on file extension
+        def get_content_type(file_path):
+            """Determine content type based on file extension"""
+            extension = os.path.splitext(file_path)[1].lower()
+            
+            content_types = {
+                '.pdf': 'application/pdf',
+                '.mp4': 'video/mp4',
+                '.avi': 'video/x-msvideo',
+                '.mov': 'video/quicktime',
+                '.wmv': 'video/x-ms-wmv',
+                '.flv': 'video/x-flv',
+                '.webm': 'video/webm',
+                '.mp3': 'audio/mpeg',
+                '.wav': 'audio/wav',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.txt': 'text/plain',
+                '.doc': 'application/msword',
+                '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                '.ppt': 'application/vnd.ms-powerpoint',
+                '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            }
+            
+            return content_types.get(extension, 'application/octet-stream')
+        
+        content_type = get_content_type(fixed_path)
+        
+        # Update view count
+        try:
+            cursor.execute(
+                "UPDATE lectures SET views = COALESCE(views, 0) + 1 WHERE id = %s",
+                (lecture_id,)
+            )
+            db.commit()
+        except:
+            # If views column doesn't exist, continue without error
+            pass
+        
+        cursor.close()
+        db.close()
+        
+        # Return file for viewing
+        return FileResponse(
+            fixed_path,
+            media_type=content_type,
+            filename=file_name
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error viewing lecture: {str(e)}")
+
+@app.get("/test/video/{lecture_id}")
+def test_video_file(lecture_id: int):
+    """Simple test to check if video file is accessible"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId 
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            return {"success": False, "error": "Lecture not found"}
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name')
+        
+        # Find actual file
+        fixed_path = fix_file_path(file_path, teacher_id)
+        actual_file_path = None
+        
+        if fixed_path and os.path.exists(fixed_path):
+            actual_file_path = fixed_path
+        else:
+            found_path = search_file_by_name(file_name, teacher_id)
+            if found_path:
+                actual_file_path = found_path
+        
+        if not actual_file_path:
+            return {
+                "success": False, 
+                "error": "File not found",
+                "searched_paths": [fixed_path, f"uploads/lectures/teacher_{teacher_id}/{file_name}"]
+            }
+        
+        # Check file properties
+        file_stats = {
+            "exists": os.path.exists(actual_file_path),
+            "is_file": os.path.isfile(actual_file_path),
+            "size": os.path.getsize(actual_file_path) if os.path.exists(actual_file_path) else 0,
+            "readable": os.access(actual_file_path, os.R_OK) if os.path.exists(actual_file_path) else False,
+            "path": actual_file_path
+        }
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "lecture": {
+                "id": lecture['id'],
+                "title": lecture['title'],
+                "file_name": file_name
+            },
+            "file_stats": file_stats,
+            "direct_url": f"http://localhost:8000{actual_file_path}" if actual_file_path.startswith('/') else f"http://localhost:8000/{actual_file_path}",
+            "stream_url": f"http://localhost:8000/stream/lecture/{lecture_id}",
+            "view_url": f"http://localhost:8000/view/lecture/{lecture_id}"
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/stream/lecture/{lecture_id}")
+async def stream_lecture_file(lecture_id: int, request: Request):
+    """Stream lecture file with proper video headers for HTML5 video player"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get lecture from database
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId 
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            raise HTTPException(status_code=404, detail="Lecture not found")
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name')
+        
+        # Find the actual file
+        fixed_path = fix_file_path(file_path, teacher_id)
+        actual_file_path = None
+        
+        if fixed_path and os.path.exists(fixed_path) and os.path.isfile(fixed_path):
+            actual_file_path = fixed_path
+        else:
+            found_path = search_file_by_name(file_name, teacher_id)
+            if found_path and os.path.exists(found_path) and os.path.isfile(found_path):
+                actual_file_path = found_path
+        
+        if not actual_file_path:
+            raise HTTPException(status_code=404, detail="Lecture file not found")
+        
+        # Get file size for range requests (video streaming)
+        file_size = os.path.getsize(actual_file_path)
+        
+        # Determine content type
+        def get_content_type(file_path):
+            extension = os.path.splitext(file_path)[1].lower()
+            content_types = {
+                '.mp4': 'video/mp4',
+                '.avi': 'video/x-msvideo',
+                '.mov': 'video/quicktime',
+                '.wmv': 'video/x-ms-wmv',
+                '.flv': 'video/x-flv',
+                '.webm': 'video/webm',
+                '.mkv': 'video/x-matroska',
+            }
+            return content_types.get(extension, 'video/mp4')
+        
+        content_type = get_content_type(actual_file_path)
+        
+        # Check if range header is present (for video seeking)
+        range_header = request.headers.get('Range')
+        
+        if range_header:
+            # Handle range requests for video streaming
+            range_match = re.match(r'bytes=(\d+)-(\d+)?', range_header)
+            if range_match:
+                start = int(range_match.group(1))
+                end = int(range_match.group(2)) if range_match.group(2) else file_size - 1
+                
+                if start >= file_size:
+                    raise HTTPException(status_code=416, detail="Range not satisfiable")
+                
+                end = min(end, file_size - 1)
+                length = end - start + 1
+                
+                # Read the specific byte range
+                with open(actual_file_path, 'rb') as video_file:
+                    video_file.seek(start)
+                    data = video_file.read(length)
+                
+                # Return partial content response
+                response = Response(
+                    content=data,
+                    status_code=206,
+                    media_type=content_type,
+                    headers={
+                        'Content-Range': f'bytes {start}-{end}/{file_size}',
+                        'Accept-Ranges': 'bytes',
+                        'Content-Length': str(length),
+                        'Content-Disposition': f'inline; filename="{file_name}"'
+                    }
+                )
+                cursor.close()
+                db.close()
+                return response
+        
+        # If no range header, return the entire file
+        cursor.close()
+        db.close()
+        
+        return FileResponse(
+            actual_file_path,
+            media_type=content_type,
+            filename=file_name,
+            headers={
+                'Accept-Ranges': 'bytes',
+                'Content-Length': str(file_size),
+                'Content-Disposition': f'inline; filename="{file_name}"'
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error streaming lecture: {str(e)}")
+
+@app.get("/debug/lecture/{lecture_id}")
+def debug_lecture_file(lecture_id: int):
+    """Debug endpoint to check lecture file issues"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId 
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            return {"success": False, "error": "Lecture not found"}
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name')
+        
+        # Comprehensive file checking
+        file_checks = {}
+        
+        # 1. Original path
+        file_checks['original_path'] = {
+            'path': file_path,
+            'exists': os.path.exists(file_path) if file_path and file_path != 'NULL' else False,
+            'is_file': os.path.isfile(file_path) if file_path and file_path != 'NULL' and os.path.exists(file_path) else False
+        }
+        
+        # 2. Fixed path
+        fixed_path = fix_file_path(file_path, teacher_id)
+        file_checks['fixed_path'] = {
+            'path': fixed_path,
+            'exists': os.path.exists(fixed_path) if fixed_path else False,
+            'is_file': os.path.isfile(fixed_path) if fixed_path and os.path.exists(fixed_path) else False
+        }
+        
+        # 3. Direct file access test
+        actual_file_path = None
+        if fixed_path and os.path.exists(fixed_path) and os.path.isfile(fixed_path):
+            actual_file_path = fixed_path
+        else:
+            # Search for the file
+            found_path = search_file_by_name(file_name, teacher_id)
+            if found_path and os.path.exists(found_path) and os.path.isfile(found_path):
+                actual_file_path = found_path
+        
+        # 4. File details if found
+        file_details = {}
+        if actual_file_path:
+            file_details = {
+                'actual_path': actual_file_path,
+                'size': os.path.getsize(actual_file_path),
+                'modified': os.path.getmtime(actual_file_path),
+                'is_readable': os.access(actual_file_path, os.R_OK)
+            }
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "lecture": {
+                "id": lecture['id'],
+                "title": lecture['title'],
+                "teacher_id": teacher_id,
+                "file_path": file_path,
+                "file_name": file_name
+            },
+            "file_checks": file_checks,
+            "file_details": file_details,
+            "actual_file_path": actual_file_path,
+            "direct_view_url": f"http://localhost:8000/view/lecture/{lecture_id}",
+            "direct_download_url": f"http://localhost:8000/download/lecture/{lecture_id}"
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+    """Stream lecture file with proper video headers"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT l.*, u.userId as teacher_userId 
+               FROM lectures l 
+               JOIN users u ON l.teacher_id = u.id 
+               WHERE l.id = %s""", 
+            (lecture_id,)
+        )
+        lecture = cursor.fetchone()
+        
+        if not lecture:
+            raise HTTPException(status_code=404, detail="Lecture not found")
+        
+        teacher_id = lecture['teacher_userId']
+        file_path = lecture.get('file_path')
+        file_name = lecture.get('file_name')
+        
+        # Find the actual file
+        fixed_path = fix_file_path(file_path, teacher_id)
+        actual_file_path = None
+        
+        if fixed_path and os.path.exists(fixed_path) and os.path.isfile(fixed_path):
+            actual_file_path = fixed_path
+        else:
+            found_path = search_file_by_name(file_name, teacher_id)
+            if found_path and os.path.exists(found_path) and os.path.isfile(found_path):
+                actual_file_path = found_path
+        
+        if not actual_file_path:
+            raise HTTPException(status_code=404, detail="Lecture file not found")
+        
+        # Get file size for range requests (video streaming)
+        file_size = os.path.getsize(actual_file_path)
+        
+        # Check if range header is present (for video seeking)
+        range_header = request.headers.get('Range')
+        
+        if range_header:
+            # Handle range requests for video streaming
+            range_match = re.match(r'bytes=(\d+)-(\d+)?', range_header)
+            if range_match:
+                start = int(range_match.group(1))
+                end = int(range_match.group(2)) if range_match.group(2) else file_size - 1
+                
+                if start >= file_size:
+                    raise HTTPException(status_code=416, detail="Range not satisfiable")
+                
+                end = min(end, file_size - 1)
+                length = end - start + 1
+                
+                with open(actual_file_path, 'rb') as video_file:
+                    video_file.seek(start)
+                    data = video_file.read(length)
+                
+                response = Response(
+                    content=data,
+                    status_code=206,
+                    media_type='video/mp4',
+                    headers={
+                        'Content-Range': f'bytes {start}-{end}/{file_size}',
+                        'Accept-Ranges': 'bytes',
+                        'Content-Length': str(length),
+                        'Content-Disposition': f'inline; filename="{file_name}"'
+                    }
+                )
+                return response
+        
+        # Regular file response
+        cursor.close()
+        db.close()
+        
+        return FileResponse(
+            actual_file_path,
+            media_type='video/mp4',
+            filename=file_name,
+            headers={
+                'Accept-Ranges': 'bytes',
+                'Content-Length': str(file_size),
+                'Content-Disposition': f'inline; filename="{file_name}"'
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error streaming lecture: {str(e)}")
+    
+#make comprehensice mcqs system
+
+# Pydantic models for quizzes
+class QuestionBase(BaseModel):
+    question_text: str
+    question_text_urdu: Optional[str] = None
+    question_text_arabic: Optional[str] = None
+    question_type: str = "mcq"
+    marks: int = 1
+    correct_answer: Optional[str] = None
+
+class OptionBase(BaseModel):
+    option_text: str
+    option_text_urdu: Optional[str] = None
+    option_text_arabic: Optional[str] = None
+    is_correct: bool = False
+
+class QuestionCreate(BaseModel):
+    question: QuestionBase
+    options: List[OptionBase]
+
+class QuizCreate(BaseModel):
+    teacher_id: str
+    subject_name: str
+    title: str
+    description: Optional[str] = None
+    start_date: str
+    end_date: str
+    total_marks: int = 100
+    duration_minutes: int = 30
+    is_published: bool = False
+    questions: List[QuestionCreate]
+
+# ------------------- QUIZ MANAGEMENT ENDPOINTS -------------------
+
+@app.post("/create_quiz_with_questions")
+async def create_quiz_with_questions(quiz_data: QuizCreate):
+    """Create a quiz with all questions and options in one go"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get teacher's numeric ID
+        cursor.execute("SELECT id FROM users WHERE userId = %s AND role = 'teacher'", (quiz_data.teacher_id,))
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            raise HTTPException(status_code=404, detail="Teacher not found")
+        
+        numeric_teacher_id = teacher['id']
+        
+        # Create quiz
+        cursor.execute(
+            """INSERT INTO quizzes 
+            (teacher_id, subject_name, title, description, start_date, end_date, 
+             total_marks, duration_minutes, is_published, questions_count) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (numeric_teacher_id, quiz_data.subject_name, quiz_data.title, 
+             quiz_data.description, quiz_data.start_date, quiz_data.end_date,
+             quiz_data.total_marks, quiz_data.duration_minutes, 
+             quiz_data.is_published, len(quiz_data.questions))
+        )
+        
+        quiz_id = cursor.lastrowid
+        
+        # Add questions and options
+        for q in quiz_data.questions:
+            cursor.execute(
+                """INSERT INTO questions 
+                (quiz_id, question_text, question_text_urdu, question_text_arabic, 
+                 question_type, marks, correct_answer) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (quiz_id, q.question.question_text, q.question.question_text_urdu,
+                 q.question.question_text_arabic, q.question.question_type,
+                 q.question.marks, q.question.correct_answer)
+            )
+            
+            question_id = cursor.lastrowid
+            
+            # Add options for this question
+            for opt in q.options:
+                cursor.execute(
+                    """INSERT INTO options 
+                    (question_id, option_text, option_text_urdu, option_text_arabic, is_correct) 
+                    VALUES (%s, %s, %s, %s, %s)""",
+                    (question_id, opt.option_text, opt.option_text_urdu,
+                     opt.option_text_arabic, opt.is_correct)
+                )
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        return {
+            "message": "Quiz created successfully",
+            "quiz_id": quiz_id,
+            "questions_added": len(quiz_data.questions),
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating quiz: {str(e)}")
+
+@app.get("/quiz/{quiz_id}/full")
+def get_quiz_with_questions(quiz_id: int):
+    """Get complete quiz with all questions and options"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get quiz details
+        cursor.execute(
+            """SELECT q.*, u.userId as teacher_userId, u.fullName as teacher_name 
+               FROM quizzes q 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE q.id = %s""",
+            (quiz_id,)
+        )
+        quiz = cursor.fetchone()
+        
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Quiz not found")
+        
+        # Get questions with options
+        cursor.execute(
+            """SELECT * FROM questions WHERE quiz_id = %s ORDER BY id""",
+            (quiz_id,)
+        )
+        questions = cursor.fetchall()
+        
+        questions_with_options = []
+        for question in questions:
+            cursor.execute(
+                """SELECT * FROM options WHERE question_id = %s ORDER BY id""",
+                (question['id'],)
+            )
+            options = cursor.fetchall()
+            
+            questions_with_options.append({
+                **question,
+                'options': options
+            })
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "quiz": quiz,
+            "questions": questions_with_options,
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching quiz: {str(e)}")
+
+@app.get("/student_quizzes/{subject_name}")
+def get_student_quizzes(subject_name: str):
+    """Get all published quizzes for a subject (student view)"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT q.*, u.fullName as teacher_name 
+               FROM quizzes q 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE q.subject_name = %s AND q.is_published = TRUE 
+               ORDER BY q.created_date DESC""",
+            (subject_name,)
+        )
+        
+        quizzes = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {"quizzes": quizzes, "success": True}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching quizzes: {str(e)}")
+
+# ------------------- STUDENT QUIZ ATTEMPT ENDPOINTS -------------------
+
+@app.post("/quiz/{quiz_id}/start_attempt")
+def start_quiz_attempt(quiz_id: int, student_userId: str):
+    """Start a new quiz attempt for student"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get student numeric ID
+        cursor.execute("SELECT id FROM users WHERE userId = %s", (student_userId,))
+        student = cursor.fetchone()
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        numeric_student_id = student['id']
+        
+        # Check if quiz exists and is published
+        cursor.execute(
+            """SELECT * FROM quizzes 
+               WHERE id = %s AND is_published = TRUE 
+               AND CURDATE() BETWEEN start_date AND end_date""",
+            (quiz_id,)
+        )
+        quiz = cursor.fetchone()
+        
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Quiz not available")
+        
+        # Start new attempt
+        cursor.execute(
+            """INSERT INTO student_attempts (student_id, quiz_id, total_score) 
+               VALUES (%s, %s, 0)""",
+            (numeric_student_id, quiz_id)
+        )
+        
+        attempt_id = cursor.lastrowid
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        return {
+            "attempt_id": attempt_id,
+            "quiz": quiz,
+            "success": True,
+            "message": "Quiz attempt started"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting quiz: {str(e)}")
+
+@app.post("/quiz/{quiz_id}/submit_answer")
+def submit_answer(
+    attempt_id: int,
+    question_id: int,
+    selected_option_id: Optional[int] = None,
+    answer_text: Optional[str] = None
+):
+    """Submit answer for a question"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get correct answer
+        cursor.execute(
+            """SELECT o.*, q.marks 
+               FROM questions q 
+               LEFT JOIN options o ON o.question_id = q.id 
+               WHERE q.id = %s AND (o.is_correct = TRUE OR %s IS NULL)""",
+            (question_id, selected_option_id)
+        )
+        
+        result = cursor.fetchone()
+        
+        is_correct = False
+        marks_obtained = 0
+        
+        if selected_option_id:
+            # MCQ or True/False
+            is_correct = result['is_correct'] if result else False
+            marks_obtained = result['marks'] if is_correct else 0
+        elif answer_text:
+            # Short answer - simple comparison (you can make this more sophisticated)
+            cursor.execute(
+                "SELECT correct_answer, marks FROM questions WHERE id = %s",
+                (question_id,)
+            )
+            question = cursor.fetchone()
+            is_correct = answer_text.strip().lower() == question['correct_answer'].strip().lower()
+            marks_obtained = question['marks'] if is_correct else 0
+        
+        # Save answer
+        cursor.execute(
+            """INSERT INTO student_answers 
+               (attempt_id, question_id, selected_option_id, answer_text, is_correct, marks_obtained) 
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (attempt_id, question_id, selected_option_id, answer_text, is_correct, marks_obtained)
+        )
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        return {
+            "is_correct": is_correct,
+            "marks_obtained": marks_obtained,
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error submitting answer: {str(e)}")
+
+@app.post("/quiz/attempt/{attempt_id}/finish")
+def finish_quiz_attempt(attempt_id: int, time_taken_minutes: int):
+    """Finish quiz attempt and calculate total score"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Calculate total score
+        cursor.execute(
+            """SELECT SUM(marks_obtained) as total_score 
+               FROM student_answers 
+               WHERE attempt_id = %s""",
+            (attempt_id,)
+        )
+        
+        total_score = cursor.fetchone()['total_score'] or 0
+        
+        # Update attempt record
+        cursor.execute(
+            """UPDATE student_attempts 
+               SET total_score = %s, time_taken_minutes = %s 
+               WHERE id = %s""",
+            (total_score, time_taken_minutes, attempt_id)
+        )
+        
+        db.commit()
+        
+        # Get attempt details
+        cursor.execute(
+            """SELECT a.*, q.title as quiz_title, u.fullName as student_name 
+               FROM student_attempts a 
+               JOIN quizzes q ON a.quiz_id = q.id 
+               JOIN users u ON a.student_id = u.id 
+               WHERE a.id = %s""",
+            (attempt_id,)
+        )
+        
+        attempt_details = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "attempt_id": attempt_id,
+            "total_score": total_score,
+            "time_taken": time_taken_minutes,
+            "attempt_details": attempt_details,
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error finishing quiz: {str(e)}")
+
+@app.get("/student/{userId}/quiz_results")
+def get_student_quiz_results(userId: str):
+    """Get all quiz results for a student"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get student numeric ID
+        cursor.execute("SELECT id FROM users WHERE userId = %s", (userId,))
+        student = cursor.fetchone()
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        numeric_student_id = student['id']
+        
+        cursor.execute(
+            """SELECT a.*, q.title as quiz_title, q.subject_name, q.total_marks,
+                      u.fullName as teacher_name,
+                      ROUND((a.total_score / q.total_marks) * 100, 2) as percentage
+               FROM student_attempts a 
+               JOIN quizzes q ON a.quiz_id = q.id 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE a.student_id = %s 
+               ORDER BY a.submitted_at DESC""",
+            (numeric_student_id,)
+        )
+        
+        results = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {"results": results, "success": True}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching results: {str(e)}")
+
+@app.get("/teacher/{teacher_userId}/quiz_results/{quiz_id}")
+def get_quiz_results_for_teacher(teacher_userId: str, quiz_id: int):
+    """Get all student results for a specific quiz"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Verify teacher owns this quiz
+        cursor.execute(
+            """SELECT q.id FROM quizzes q 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE u.userId = %s AND q.id = %s""",
+            (teacher_userId, quiz_id)
+        )
+        
+        quiz = cursor.fetchone()
+        if not quiz:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        cursor.execute(
+            """SELECT a.*, u.fullName as student_name, u.userId as student_userId,
+                      ROUND((a.total_score / q.total_marks) * 100, 2) as percentage
+               FROM student_attempts a 
+               JOIN users u ON a.student_id = u.id 
+               JOIN quizzes q ON a.quiz_id = q.id 
+               WHERE a.quiz_id = %s 
+               ORDER BY a.total_score DESC""",
+            (quiz_id,)
+        )
+        
+        results = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {"results": results, "quiz_id": quiz_id, "success": True}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching results: {str(e)}")
+
+# ------------------- QUIZ EDITING ENDPOINTS -------------------
+
+@app.put("/quiz/{quiz_id}/publish")
+def publish_quiz(quiz_id: int, teacher_userId: str):
+    """Publish/unpublish a quiz"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Verify teacher owns this quiz
+        cursor.execute(
+            """SELECT q.id FROM quizzes q 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE u.userId = %s AND q.id = %s""",
+            (teacher_userId, quiz_id)
+        )
+        
+        quiz = cursor.fetchone()
+        if not quiz:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Toggle publish status
+        cursor.execute(
+            "UPDATE quizzes SET is_published = NOT is_published WHERE id = %s",
+            (quiz_id,)
+        )
+        
+        cursor.execute("SELECT is_published FROM quizzes WHERE id = %s", (quiz_id,))
+        new_status = cursor.fetchone()['is_published']
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        status_text = "published" if new_status else "unpublished"
+        return {
+            "message": f"Quiz {status_text} successfully",
+            "is_published": new_status,
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error publishing quiz: {str(e)}")
+
+@app.delete("/quiz/{quiz_id}")
+def delete_quiz(quiz_id: int, teacher_userId: str):
+    """Delete a quiz and all related data"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Verify teacher owns this quiz
+        cursor.execute(
+            """SELECT q.id FROM quizzes q 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE u.userId = %s AND q.id = %s""",
+            (teacher_userId, quiz_id)
+        )
+        
+        quiz = cursor.fetchone()
+        if not quiz:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Delete quiz (cascade will delete questions, options, attempts, answers)
+        cursor.execute("DELETE FROM quizzes WHERE id = %s", (quiz_id,))
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        return {"message": "Quiz deleted successfully", "success": True}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting quiz: {str(e)}")
+
+# ------------------- VOICE INPUT ENDPOINT -------------------
+
+@app.post("/speech-to-text")
+async def speech_to_text(audio: UploadFile = File(...)):
+    """Convert speech to text (placeholder - integrate with actual speech API)"""
+    try:
+        # For now, return mock response
+        # In production, integrate with:
+        # 1. Google Speech-to-Text API
+        # 2. Azure Cognitive Services
+        # 3. Or any speech recognition library
+        
+        # This is a placeholder response
+        return {
+            "text": "This is a placeholder for speech-to-text conversion.",
+            "language": "en",
+            "success": True,
+            "note": "Integrate with actual speech recognition API for production"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing speech: {str(e)}")

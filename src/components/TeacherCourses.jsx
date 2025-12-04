@@ -38,11 +38,11 @@ const TeacherCourses = () => {
     questionsCount: 10,
     durationMinutes: 30
   });
-  const [materialForm, setMaterialForm] = useState({ 
-    title: "", 
-    description: "", 
-    materialType: "other", 
-    file: null 
+  const [materialForm, setMaterialForm] = useState({
+    title: "",
+    description: "",
+    materialType: "other",
+    file: null
   });
 
   // Get teacher data
@@ -365,6 +365,28 @@ const TeacherCourses = () => {
     }
   };
 
+  // Add this function after the other functions like deleteMaterial
+  const handleOpenQuizMaker = () => {
+  if (!teacherData) {
+    alert("Please wait while teacher data loads...");
+    return;
+  }
+
+  const teacherId = teacherData?.userId || teacherData?.userid || teacherData?.id;
+  const teacherName = teacherData?.fullName || "Teacher";
+
+  // Save teacher data to localStorage as backup
+  localStorage.setItem('quizTeacherData', JSON.stringify({
+    userId: teacherId,
+    fullName: teacherName,
+    subjects: subjects,
+    selectedSubject: selectedSubject
+  }));
+
+  // Open quiz maker WITH teacher ID in URL
+  window.open(`/quiz-maker?teacherId=${teacherId}&subject=${selectedSubject}`, '_blank');
+};
+
   // Create material with real API
   const handleMaterialSubmit = async (e) => {
     e.preventDefault();
@@ -486,7 +508,18 @@ const TeacherCourses = () => {
   return (
     <div className="teacher-courses-container">
       <div className="teacher-header">
-        <h1>👨‍🏫 Teacher Dashboard</h1>
+        <div className="header-top">
+          <h1>👨‍🏫 Teacher Dashboard</h1>
+          <button
+  onClick={() => handleOpenQuizMaker()}
+  className="make-quiz-btn"
+  title="Create MCQ Quiz with Urdu/Arabic support"
+>
+  📝 Make Advanced Quiz
+</button>
+
+        </div>
+
         {teacherData && (
           <div className="teacher-info">
             <div className="info-card">
@@ -678,54 +711,198 @@ const TeacherCourses = () => {
                     <div className="form-row">
                       <input type="date" placeholder="Start Date" value={quizForm.startDate} onChange={(e) => setQuizForm({ ...quizForm, startDate: e.target.value })} required />
                       <input type="date" placeholder="End Date" value={quizForm.endDate} onChange={(e) => setQuizForm({ ...quizForm, endDate: e.target.value })} required />
+                      <input
+                        type="number"
+                        placeholder="Total Marks"
+                        value={quizForm.totalMarks}
+                        onChange={(e) => setQuizForm({ ...quizForm, totalMarks: e.target.value })}
+                        min="1"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Duration (minutes)"
+                        value={quizForm.durationMinutes}
+                        onChange={(e) => setQuizForm({ ...quizForm, durationMinutes: e.target.value })}
+                        min="1"
+                      />
                     </div>
-                    <button type="submit" className="btn-primary">Create Quiz</button>
+                    <button type="submit" className="btn-primary">Create Simple Quiz</button>
                   </form>
+
+                  {/* ADD THIS SECTION FOR ADVANCED QUIZ MAKER */}
+                  <div className="advanced-quiz-section">
+                    <div className="advanced-quiz-header">
+                      <h4>🎯 Advanced Quiz Creator</h4>
+                      <p className="advanced-quiz-description">
+                        Create multilingual quizzes with Urdu/Arabic support, voice input, and automatic grading
+                      </p>
+                    </div>
+
+                    <div className="advanced-features-list">
+                      <div className="feature-item">
+                        <span className="feature-icon">🌐</span>
+                        <span>Multilingual (English/Urdu/Arabic)</span>
+                      </div>
+                      <div className="feature-item">
+                        <span className="feature-icon">🎤</span>
+                        <span>Voice Input Support</span>
+                      </div>
+                      <div className="feature-item">
+                        <span className="feature-icon">✅</span>
+                        <span>Automatic Grading</span>
+                      </div>
+                      <div className="feature-item">
+                        <span className="feature-icon">📝</span>
+                        <span>Question Bank & Templates</span>
+                      </div>
+                    </div>
+
+                    <button
+  onClick={() => {
+    const teacherId = teacherData?.userId || teacherData?.userid || teacherData?.id;
+    const teacherName = teacherData?.fullName || "Teacher";
+    
+    localStorage.setItem('quizTeacherData', JSON.stringify({
+      userId: teacherId,
+      fullName: teacherName,
+      subjects: subjects,
+      selectedSubject: selectedSubject,
+      prefillSubject: selectedSubject
+    }));
+    
+    // Pass teacher ID and subject in URL
+    window.open(`/quiz-maker?teacherId=${teacherId}&subject=${selectedSubject}`, '_blank');
+  }}
+  className="advanced-quiz-btn"
+>
+  <span className="btn-icon">🚀</span>
+  Open Advanced Quiz Maker
+</button>
+
+                    <div className="quick-tip">
+                      <small>💡 Tip: Use the advanced creator for MCQs with multiple languages and automatic checking</small>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="content-list">
-                  <h3>Active Quizzes</h3>
-                  {quizzes.map(quiz => (
-                    <div key={quiz.id} className="content-item quiz-item">
-                      <div className="content-info">
-                        <h4>{quiz.title}</h4>
-                        <p>{quiz.description}</p>
-                        <small>Start: {formatDate(quiz.start_date)} • End: {formatDate(quiz.end_date)}</small>
-                        <small>Total Marks: {quiz.total_marks} • Questions: {quiz.questions_count} • Duration: {quiz.duration_minutes}min</small>
-                        <small>Attempts: {quiz.attempts} • Average Score: {quiz.average_score}%</small>
-                      </div>
-                      <div className="content-actions">
-                        <button className="btn-take-quiz">
-                          🎯 Take Quiz
-                        </button>
-                        <button className="btn-view">📊 View Results</button>
-                      </div>
+                  <div className="content-list-header">
+                    <h3>Active Quizzes</h3>
+                    <div className="quiz-stats">
+                      <span className="stat-item">
+                        <strong>{quizzes.length}</strong> Quizzes
+                      </span>
+                      <span className="stat-item">
+                        <strong>{quizzes.filter(q => q.is_published).length}</strong> Published
+                      </span>
                     </div>
-                  ))}
+                  </div>
+
+                  {quizzes.length === 0 ? (
+                    <div className="no-quizzes-message">
+                      <p>No quizzes created yet.</p>
+                      <p>Create your first quiz using the form above!</p>
+                    </div>
+                  ) : (
+                    quizzes.map(quiz => (
+                      <div key={quiz.id} className="content-item quiz-item">
+                        <div className="quiz-status">
+                          <span className={`status-badge ${quiz.is_published ? 'published' : 'draft'}`}>
+                            {quiz.is_published ? '✅ Published' : '📝 Draft'}
+                          </span>
+                          {new Date(quiz.end_date) < new Date() && (
+                            <span className="status-badge expired">⏰ Expired</span>
+                          )}
+                        </div>
+
+                        <div className="content-info">
+                          <h4>{quiz.title}</h4>
+                          <p>{quiz.description}</p>
+                          <div className="quiz-meta">
+                            <div className="meta-row">
+                              <span className="meta-item">
+                                <strong>📅 Period:</strong> {formatDate(quiz.start_date)} - {formatDate(quiz.end_date)}
+                              </span>
+                              <span className="meta-item">
+                                <strong>⏱️ Duration:</strong> {quiz.duration_minutes} minutes
+                              </span>
+                            </div>
+                            <div className="meta-row">
+                              <span className="meta-item">
+                                <strong>📊 Total Marks:</strong> {quiz.total_marks}
+                              </span>
+                              <span className="meta-item">
+                                <strong>❓ Questions:</strong> {quiz.questions_count}
+                              </span>
+                            </div>
+                            <div className="meta-row">
+                              <span className="meta-item">
+                                <strong>👥 Attempts:</strong> {quiz.attempts || 0}
+                              </span>
+                              <span className="meta-item">
+                                <strong>📈 Avg. Score:</strong> {quiz.average_score || 0}%
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="content-actions">
+                          <button
+                            className="btn-take-quiz"
+                            onClick={() => {
+                              // Optional: Navigate to quiz preview or edit
+                              alert(`Quiz ID: ${quiz.id}\nWould open quiz editor...`);
+                            }}
+                          >
+                            ✏️ Edit Quiz
+                          </button>
+                          <button
+                            className="btn-view"
+                            onClick={() => {
+                              // Navigate to results view
+                              window.open(`/quiz-results/${quiz.id}`, '_blank');
+                            }}
+                          >
+                            📊 View Results
+                          </button>
+                          <button
+                            className="btn-delete"
+                            onClick={() => {
+                              if (window.confirm(`Delete quiz "${quiz.title}"?`)) {
+                                // Call delete API
+                                console.log(`Delete quiz ${quiz.id}`);
+                              }
+                            }}
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
-
             {/* Materials Tab */}
             {activeTab === 'materials' && (
               <div className="tab-panel">
                 <div className="form-section">
                   <h3>Upload New Material</h3>
                   <form onSubmit={handleMaterialSubmit} className="upload-form">
-                    <input 
-                      type="text" 
-                      placeholder="Material Title" 
-                      value={materialForm.title} 
-                      onChange={(e) => setMaterialForm({ ...materialForm, title: e.target.value })} 
-                      required 
+                    <input
+                      type="text"
+                      placeholder="Material Title"
+                      value={materialForm.title}
+                      onChange={(e) => setMaterialForm({ ...materialForm, title: e.target.value })}
+                      required
                     />
-                    <textarea 
-                      placeholder="Material Description" 
-                      value={materialForm.description} 
-                      onChange={(e) => setMaterialForm({ ...materialForm, description: e.target.value })} 
+                    <textarea
+                      placeholder="Material Description"
+                      value={materialForm.description}
+                      onChange={(e) => setMaterialForm({ ...materialForm, description: e.target.value })}
                     />
-                    <select 
-                      value={materialForm.materialType} 
+                    <select
+                      value={materialForm.materialType}
                       onChange={(e) => setMaterialForm({ ...materialForm, materialType: e.target.value })}
                     >
                       <option value="lecture_note">Lecture Note</option>
@@ -733,10 +910,10 @@ const TeacherCourses = () => {
                       <option value="supplementary">Supplementary Material</option>
                       <option value="other">Other</option>
                     </select>
-                    <input 
-                      type="file" 
-                      onChange={(e) => handleFileUpload(e, 'material')} 
-                      accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.jpg,.jpeg,.png" 
+                    <input
+                      type="file"
+                      onChange={(e) => handleFileUpload(e, 'material')}
+                      accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.jpg,.jpeg,.png"
                     />
                     <button type="submit" className="btn-primary">Upload Material</button>
                   </form>
@@ -753,8 +930,8 @@ const TeacherCourses = () => {
                           <h4>{material.title}</h4>
                           <p>{material.description}</p>
                           <small>
-                            Type: {material.material_type} • 
-                            Uploaded: {formatDate(material.upload_date)} • 
+                            Type: {material.material_type} •
+                            Uploaded: {formatDate(material.upload_date)} •
                             Downloads: {material.downloads}
                           </small>
                           {material.file_name && <small>File: {material.file_name}</small>}

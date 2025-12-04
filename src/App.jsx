@@ -24,10 +24,11 @@ import TeacherDashboard from "./components/TeacherDashboard";
 import TeacherLayout from "./components/TeacherLayout";
 import TeacherCourses from "./components/TeacherCourses";
 import TeacherProfile from "./components/TeacherProfile";
+import QuizMaker from './components/QuizMaker';
 
 function App() {
   return (
-    <Router>
+   <Router>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<HomePage />} />
@@ -43,7 +44,6 @@ function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="payments" element={<Payments />} />
           <Route path="settings" element={<Settings />} />
-          
         </Route>
 
         {/* Student Routes */}
@@ -63,8 +63,11 @@ function App() {
           <Route index element={<TeacherDashboard />} />
           <Route path="courses" element={<TeacherCourses />} />
           <Route path="profile" element={<TeacherProfile />} />
-          {/* <Route path="assignments" element={<TeacherAssignments />} /> */}
+          {/* REMOVE QuizMaker from here */}
         </Route>
+
+        {/* ✅ QuizMaker Route - MUST BE AT ROOT LEVEL for window.open to work */}
+        <Route path="/quiz-maker" element={<QuizMaker />} />
       </Routes>
     </Router>
   );
