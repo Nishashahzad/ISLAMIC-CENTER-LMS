@@ -1,12 +1,19 @@
 // components/QuizMaker.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import './QuizMaker.css';
 
 const QuizMaker = () => {
+  const [searchParams] = useSearchParams();
+  
+  // Get teacher ID and subject from URL parameters
+  const teacherIdFromURL = searchParams.get('teacherId');
+  const subjectFromURL = searchParams.get('subject');
+  
   const [quizData, setQuizData] = useState({
     title: '',
     description: '',
-    subject_name: '',
+    subject_name: subjectFromURL || '', // Pre-fill from URL
     start_date: '',
     end_date: '',
     duration_minutes: 30,
@@ -15,54 +22,201 @@ const QuizMaker = () => {
     questions: []
   });
 
+  const [activeLanguage, setActiveLanguage] = useState('english');
+  const [questionLanguage, setQuestionLanguage] = useState('english');
   const [currentQuestion, setCurrentQuestion] = useState({
     question_text: '',
-    question_text_urdu: '',
-    question_text_arabic: '',
     question_type: 'mcq',
     marks: 1,
     correct_answer: '',
     options: [
-      { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false },
-      { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false },
-      { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false },
-      { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false }
+      { option_text: '', is_correct: false },
+      { option_text: '', is_correct: false },
+      { option_text: '', is_correct: false },
+      { option_text: '', is_correct: false }
     ]
   });
 
-  const [activeTab, setActiveTab] = useState('english');
   const [isRecording, setIsRecording] = useState(false);
-  const [subjects, setSubjects] = useState([]);
-  const [teacherId, setTeacherId] = useState('');
+  const [teacherAssignedSubjects, setTeacherAssignedSubjects] = useState([]);
+  const [teacherId, setTeacherId] = useState(teacherIdFromURL || '');
+  const [teacherName, setTeacherName] = useState('');
+  const [showLanguageSelector, setShowLanguageSelector] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [subjectValidated, setSubjectValidated] = useState(false);
+  const [validationError, setValidationError] = useState('');
+
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
-    // Get teacher ID from localStorage or context
+    // Get teacher data from localStorage as backup
     const storedTeacher = JSON.parse(localStorage.getItem('user') || '{}');
-    console.log('Stored user:', storedTeacher);
+    const quizTeacherData = JSON.parse(localStorage.getItem('quizTeacherData') || '{}');
     
-    if (storedTeacher.userId) {
-      setTeacherId(storedTeacher.userId);
-    } else if (storedTeacher.userid) {
-      setTeacherId(storedTeacher.userid);
-    } else if (storedTeacher.id) {
-      setTeacherId(storedTeacher.id);
+    let finalTeacherId = teacherId;
+    let finalTeacherName = '';
+    let finalSubject = subjectFromURL;
+    
+    // Priority: URL params > quizTeacherData > localStorage
+    if (!finalTeacherId && quizTeacherData.userId) {
+      finalTeacherId = quizTeacherData.userId;
+    } else if (!finalTeacherId && storedTeacher.userId) {
+      finalTeacherId = storedTeacher.userId;
+    } else if (!finalTeacherId && storedTeacher.userid) {
+      finalTeacherId = storedTeacher.userid;
+    } else if (!finalTeacherId && storedTeacher.id) {
+      finalTeacherId = storedTeacher.id;
     }
-
-    // Fetch available subjects
-    fetchSubjects();
+    
+    if (quizTeacherData.fullName) {
+      finalTeacherName = quizTeacherData.fullName;
+    } else if (storedTeacher.fullName) {
+      finalTeacherName = storedTeacher.fullName;
+    }
+    
+    if (!finalSubject && quizTeacherData.selectedSubject) {
+      finalSubject = quizTeacherData.selectedSubject;
+    } else if (!finalSubject && quizTeacherData.prefillSubject) {
+      finalSubject = quizTeacherData.prefillSubject;
+    }
+    
+    // Update state
+    if (finalTeacherId) {
+      setTeacherId(finalTeacherId);
+    }
+    
+    if (finalTeacherName) {
+      setTeacherName(finalTeacherName);
+    }
+    
+    if (finalSubject && !quizData.subject_name) {
+      setQuizData(prev => ({
+        ...prev,
+        subject_name: finalSubject
+      }));
+    }
+    
+    // Validate teacher and subject
+    validateTeacherAndSubject(finalTeacherId, finalSubject);
   }, []);
 
-  const fetchSubjects = async () => {
+  const validateTeacherAndSubject = async (teacherId, subject) => {
     try {
-      const response = await fetch('http://localhost:8000/all_subjects');
+      setLoading(true);
+      
+      if (!teacherId) {
+        setValidationError('Teacher ID not found. Please log in as a teacher.');
+        setLoading(false);
+        return;
+      }
+      
+      if (!subject) {
+        setValidationError('No subject specified. Please select a subject in your courses first.');
+        setLoading(false);
+        return;
+      }
+      
+      // Fetch teacher's assigned subjects to validate
+      const response = await fetch(`http://localhost:8000/teacher/${teacherId}/assigned_subjects`);
       const data = await response.json();
-      if (data.subjects) {
-        setSubjects(data.subjects);
+      
+      if (data.success) {
+        const assignedSubjects = data.assigned_subjects || [];
+        setTeacherAssignedSubjects(assignedSubjects);
+        
+        // Check if the subject is in teacher's assigned subjects
+        const subjectMatch = assignedSubjects.some(assignedSubject => 
+          assignedSubject.toLowerCase() === subject.toLowerCase()
+        );
+        
+        if (!subjectMatch && assignedSubjects.length > 0) {
+          setValidationError(`You are not assigned to teach "${subject}". Your assigned subjects: ${assignedSubjects.join(', ')}`);
+        } else if (subjectMatch) {
+          setSubjectValidated(true);
+          console.log(`✅ Subject validated: ${subject} for teacher ${teacherId}`);
+        }
+      } else {
+        setValidationError('Error validating your teaching subjects. Please try again.');
       }
     } catch (error) {
-      console.error('Error fetching subjects:', error);
+      console.error('Error validating teacher:', error);
+      setValidationError('Error connecting to server. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
+
+  // Language Selection Screen
+  const LanguageSelector = () => (
+    <div className="language-selector-screen">
+      <div className="language-selector-container">
+        <h2>🌐 Choose Quiz Language</h2>
+        <p className="language-selector-description">
+          Creating quiz for: <strong>{quizData.subject_name}</strong>
+        </p>
+        
+        <div className="language-options">
+          <div 
+            className={`language-option ${activeLanguage === 'english' ? 'selected' : ''}`}
+            onClick={() => {
+              setActiveLanguage('english');
+              setQuestionLanguage('english');
+              setShowLanguageSelector(false);
+            }}
+          >
+            <div className="language-icon">🇺🇸</div>
+            <div className="language-info">
+              <h3>English</h3>
+              <p>Create questions in English</p>
+            </div>
+            <div className="language-select-arrow">→</div>
+          </div>
+          
+          <div 
+            className={`language-option ${activeLanguage === 'urdu' ? 'selected' : ''}`}
+            onClick={() => {
+              setActiveLanguage('urdu');
+              setQuestionLanguage('urdu');
+              setShowLanguageSelector(false);
+            }}
+          >
+            <div className="language-icon">🇵🇰</div>
+            <div className="language-info">
+              <h3>اردو</h3>
+              <p>Create questions in Urdu</p>
+            </div>
+            <div className="language-select-arrow">→</div>
+          </div>
+          
+          <div 
+            className={`language-option ${activeLanguage === 'arabic' ? 'selected' : ''}`}
+            onClick={() => {
+              setActiveLanguage('arabic');
+              setQuestionLanguage('arabic');
+              setShowLanguageSelector(false);
+            }}
+          >
+            <div className="language-icon">🇸🇦</div>
+            <div className="language-info">
+              <h3>العربية</h3>
+              <p>Create questions in Arabic</p>
+            </div>
+            <div className="language-select-arrow">→</div>
+          </div>
+        </div>
+        
+        <div className="subject-info-card">
+          <h4>Quiz Details</h4>
+          <p><strong>Subject:</strong> {quizData.subject_name}</p>
+          {teacherName && <p><strong>Teacher:</strong> {teacherName}</p>}
+        </div>
+        
+        <div className="language-tip">
+          <p>💡 You can change the language for each question using the language switcher.</p>
+        </div>
+      </div>
+    </div>
+  );
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -80,11 +234,11 @@ const QuizMaker = () => {
     }));
   };
 
-  const handleOptionChange = (index, field, value) => {
+  const handleOptionChange = (index, value) => {
     const updatedOptions = [...currentQuestion.options];
     updatedOptions[index] = {
       ...updatedOptions[index],
-      [field]: value
+      option_text: value
     };
     setCurrentQuestion(prev => ({
       ...prev,
@@ -110,24 +264,38 @@ const QuizMaker = () => {
       return;
     }
 
+    // Create question with all language fields (even if empty)
+    const questionToAdd = {
+      question_text: questionLanguage === 'english' ? currentQuestion.question_text : '',
+      question_text_urdu: questionLanguage === 'urdu' ? currentQuestion.question_text : '',
+      question_text_arabic: questionLanguage === 'arabic' ? currentQuestion.question_text : '',
+      question_type: currentQuestion.question_type,
+      marks: currentQuestion.marks,
+      correct_answer: currentQuestion.correct_answer,
+      options: currentQuestion.options.map(opt => ({
+        option_text: questionLanguage === 'english' ? opt.option_text : '',
+        option_text_urdu: questionLanguage === 'urdu' ? opt.option_text : '',
+        option_text_arabic: questionLanguage === 'arabic' ? opt.option_text : '',
+        is_correct: opt.is_correct
+      }))
+    };
+
     setQuizData(prev => ({
       ...prev,
-      questions: [...prev.questions, { ...currentQuestion }]
+      questions: [...prev.questions, questionToAdd]
     }));
 
     // Reset current question
     setCurrentQuestion({
       question_text: '',
-      question_text_urdu: '',
-      question_text_arabic: '',
       question_type: 'mcq',
       marks: 1,
       correct_answer: '',
       options: [
-        { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false },
-        { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false },
-        { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false },
-        { option_text: '', option_text_urdu: '', option_text_arabic: '', is_correct: false }
+        { option_text: '', is_correct: false },
+        { option_text: '', is_correct: false },
+        { option_text: '', is_correct: false },
+        { option_text: '', is_correct: false }
       ]
     });
   };
@@ -141,29 +309,26 @@ const QuizMaker = () => {
 
   const startVoiceRecording = () => {
     setIsRecording(true);
-    // In production, integrate with Web Speech API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
     if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.lang = activeTab === 'urdu' ? 'ur-PK' : 
-                        activeTab === 'arabic' ? 'ar-SA' : 'en-US';
-      recognition.continuous = true;
-      recognition.interimResults = true;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.lang = questionLanguage === 'urdu' ? 'ur-PK' : 
+                        questionLanguage === 'arabic' ? 'ar-SA' : 'en-US';
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
 
-      recognition.onresult = (event) => {
+      recognitionRef.current.onresult = (event) => {
         const transcript = event.results[event.results.length - 1][0].transcript;
-        
-        if (activeTab === 'english') {
-          setCurrentQuestion(prev => ({ ...prev, question_text: transcript }));
-        } else if (activeTab === 'urdu') {
-          setCurrentQuestion(prev => ({ ...prev, question_text_urdu: transcript }));
-        } else if (activeTab === 'arabic') {
-          setCurrentQuestion(prev => ({ ...prev, question_text_arabic: transcript }));
-        }
+        setCurrentQuestion(prev => ({ ...prev, question_text: transcript }));
       };
 
-      recognition.start();
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+      };
+
+      recognitionRef.current.start();
     } else {
       alert('Speech recognition not supported in this browser');
       setIsRecording(false);
@@ -172,94 +337,160 @@ const QuizMaker = () => {
 
   const stopVoiceRecording = () => {
     setIsRecording(false);
-    // Stop speech recognition
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
   };
 
-  const submitQuiz = async () => {
-    if (!teacherId) {
-      alert('Teacher ID not found. Please log in as a teacher.');
-      return;
+const submitQuiz = async () => {
+  if (!teacherId) {
+    alert('Teacher ID not found. Please log in as a teacher.');
+    return;
+  }
+
+  if (!quizData.subject_name) {
+    alert('Subject not found. Please go back and select a subject first.');
+    return;
+  }
+
+  if (!quizData.title || quizData.questions.length === 0) {
+    alert('Please fill quiz title and add at least one question');
+    return;
+  }
+
+  // Make sure dates are properly formatted
+  const quizPayload = {
+    teacher_id: teacherId,
+    subject_name: quizData.subject_name,
+    title: quizData.title,
+    description: quizData.description || "",
+    start_date: quizData.start_date,
+    end_date: quizData.end_date,
+    total_marks: parseInt(quizData.total_marks) || 100,
+    duration_minutes: parseInt(quizData.duration_minutes) || 30,
+    is_published: quizData.is_published,
+    questions: quizData.questions
+  };
+
+  console.log('Submitting quiz:', quizPayload);
+
+  try {
+    const response = await fetch('http://localhost:8000/create_quiz_with_questions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(quizPayload)
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      // Handle HTTP errors
+      throw new Error(data.detail || `HTTP error! status: ${response.status}`);
     }
-
-    if (!quizData.title || !quizData.subject_name || quizData.questions.length === 0) {
-      alert('Please fill all required fields and add at least one question');
-      return;
-    }
-
-    const quizPayload = {
-      teacher_id: teacherId,
-      subject_name: quizData.subject_name,
-      title: quizData.title,
-      description: quizData.description,
-      start_date: quizData.start_date,
-      end_date: quizData.end_date,
-      total_marks: quizData.total_marks,
-      duration_minutes: quizData.duration_minutes,
-      is_published: quizData.is_published,
-      questions: quizData.questions.map(q => ({
-        question: {
-          question_text: q.question_text,
-          question_text_urdu: q.question_text_urdu || '',
-          question_text_arabic: q.question_text_arabic || '',
-          question_type: q.question_type,
-          marks: q.marks,
-          correct_answer: q.correct_answer
-        },
-        options: q.options.map(opt => ({
-          option_text: opt.option_text,
-          option_text_urdu: opt.option_text_urdu || '',
-          option_text_arabic: opt.option_text_arabic || '',
-          is_correct: opt.is_correct
-        }))
-      }))
-    };
-
-    console.log('Submitting quiz:', quizPayload);
-
-    try {
-      const response = await fetch('http://localhost:8000/create_quiz_with_questions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(quizPayload)
+    
+    if (data.success) {
+      alert('Quiz created successfully!');
+      // Reset form
+      setQuizData({
+        title: '',
+        description: '',
+        subject_name: quizData.subject_name, // Keep same subject
+        start_date: '',
+        end_date: '',
+        duration_minutes: 30,
+        total_marks: 100,
+        is_published: false,
+        questions: []
       });
-
-      const data = await response.json();
-      console.log('Response:', data);
-      
-      if (data.success) {
-        alert('Quiz created successfully!');
-        // Reset form
-        setQuizData({
-          title: '',
-          description: '',
-          subject_name: '',
-          start_date: '',
-          end_date: '',
-          duration_minutes: 30,
-          total_marks: 100,
-          is_published: false,
-          questions: []
-        });
-      } else {
-        alert('Error creating quiz: ' + (data.detail || 'Unknown error'));
-      }
-    } catch (error) {
-      console.error('Error submitting quiz:', error);
-      alert('Error creating quiz. Please try again.');
+      setShowLanguageSelector(true);
+    } else {
+      alert('Error creating quiz: ' + (data.detail || 'Unknown error'));
     }
+  } catch (error) {
+    console.error('Error submitting quiz:', error);
+    alert('Error creating quiz: ' + error.message);
+  }
+};
+
+  // Get language label
+  const getLanguageLabel = (lang) => {
+    const labels = {
+      'english': 'English',
+      'urdu': 'اردو',
+      'arabic': 'العربية'
+    };
+    return labels[lang] || lang;
   };
+
+  // Loading screen
+  if (loading) {
+    return (
+      <div className="quiz-maker-container">
+        <div className="loading-screen">
+          <h2>Loading quiz maker...</h2>
+          <p>Validating your teaching permissions for: <strong>{quizData.subject_name}</strong></p>
+          <div className="loading-spinner"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // Validation error
+  if (validationError) {
+    return (
+      <div className="quiz-maker-container">
+        <div className="validation-error">
+          <h2>⚠️ Access Denied</h2>
+          <p>{validationError}</p>
+          <button 
+            onClick={() => window.close()}
+            className="back-button"
+          >
+            ← Close and Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Language selector
+  if (showLanguageSelector) {
+    return <LanguageSelector />;
+  }
 
   return (
     <div className="quiz-maker-container">
+      {/* Header with Language Switcher */}
       <div className="quiz-maker-header">
-        <h1>🎯 Create MCQ Quiz</h1>
-        <div className="teacher-info-badge">
-          {teacherId ? `Teacher: ${teacherId}` : 'Please log in as teacher'}
+        <div className="header-left">
+          <h1>🎯 Create MCQ Quiz</h1>
+          <div className="subject-display">
+            <div className="subject-badge">
+              📚 Subject: <strong>{quizData.subject_name}</strong>
+            </div>
+            <div className="teacher-info">
+              {teacherName && <span className="teacher-name">Teacher: {teacherName}</span>}
+            </div>
+          </div>
+        </div>
+        <div className="header-right">
+          <div className="language-switcher">
+            <span className="current-language">
+              Language: <strong>{getLanguageLabel(questionLanguage)}</strong>
+            </span>
+            <button 
+              className="change-language-btn"
+              onClick={() => setShowLanguageSelector(true)}
+            >
+              🔄 Change Language
+            </button>
+          </div>
         </div>
       </div>
       
+      {/* Quiz Information Section */}
       <div className="quiz-info-section">
         <h2>Quiz Information</h2>
         <div className="form-group">
@@ -274,19 +505,24 @@ const QuizMaker = () => {
           />
         </div>
 
+        {/* Hidden subject field - automatically filled */}
+        <input type="hidden" name="subject_name" value={quizData.subject_name} />
+        
+        {/* Subject Display (Read-only) */}
         <div className="form-group">
-          <label>Subject *</label>
-          <select
-            name="subject_name"
-            value={quizData.subject_name}
-            onChange={handleInputChange}
-            required
-          >
-            <option value="">Select Subject</option>
-            {subjects.map((subject, index) => (
-              <option key={index} value={subject}>{subject}</option>
-            ))}
-          </select>
+          <label>Subject</label>
+          <div className="subject-display-box">
+            <input
+              type="text"
+              value={quizData.subject_name}
+              readOnly
+              className="readonly-subject-input"
+            />
+            <span className="subject-lock-icon">🔒</span>
+          </div>
+          <small className="subject-hint">
+            This quiz will be created for your assigned subject: <strong>{quizData.subject_name}</strong>
+          </small>
         </div>
 
         <div className="form-row">
@@ -347,29 +583,17 @@ const QuizMaker = () => {
         </div>
       </div>
 
+      {/* Question Creation Section */}
       <div className="question-section">
-        <h2>Add Questions ({quizData.questions.length} added)</h2>
-        
-        {/* Language Tabs */}
-        <div className="language-tabs">
-          <button 
-            className={activeTab === 'english' ? 'active' : ''}
-            onClick={() => setActiveTab('english')}
-          >
-            English
-          </button>
-          <button 
-            className={activeTab === 'urdu' ? 'active' : ''}
-            onClick={() => setActiveTab('urdu')}
-          >
-            Urdu
-          </button>
-          <button 
-            className={activeTab === 'arabic' ? 'active' : ''}
-            onClick={() => setActiveTab('arabic')}
-          >
-            Arabic
-          </button>
+        <div className="section-header">
+          <h2>Add Questions ({quizData.questions.length} added)</h2>
+          <div className="language-badge">
+            <span className="badge-icon">
+              {questionLanguage === 'english' ? '🇺🇸' : 
+               questionLanguage === 'urdu' ? '🇵🇰' : '🇸🇦'}
+            </span>
+            <span className="badge-text">{getLanguageLabel(questionLanguage)} Mode</span>
+          </div>
         </div>
 
         {/* Voice Input Button */}
@@ -381,23 +605,20 @@ const QuizMaker = () => {
           >
             {isRecording ? '🛑 Stop Recording' : '🎤 Start Voice Input'}
           </button>
-          <small>Click and speak to input text in {activeTab} language</small>
+          <small>Click and speak to input text in {getLanguageLabel(questionLanguage)}</small>
         </div>
 
-        {/* Question Input based on active language */}
+        {/* Question Input */}
         <div className="form-group">
-          <label>Question Text ({activeTab.toUpperCase()}) *</label>
+          <label>Question Text ({getLanguageLabel(questionLanguage)}) *</label>
           <textarea
-            name={activeTab === 'english' ? 'question_text' : 
-                  activeTab === 'urdu' ? 'question_text_urdu' : 'question_text_arabic'}
-            value={activeTab === 'english' ? currentQuestion.question_text :
-                   activeTab === 'urdu' ? currentQuestion.question_text_urdu :
-                   currentQuestion.question_text_arabic}
+            name="question_text"
+            value={currentQuestion.question_text}
             onChange={handleQuestionChange}
-            placeholder={`Enter question in ${activeTab}`}
+            placeholder={`Enter question in ${getLanguageLabel(questionLanguage)}`}
             rows="3"
-            className={`question-input ${activeTab === 'urdu' || activeTab === 'arabic' ? 'rtl' : ''}`}
-            dir={activeTab === 'urdu' || activeTab === 'arabic' ? 'rtl' : 'ltr'}
+            className={`question-input ${questionLanguage === 'urdu' || questionLanguage === 'arabic' ? 'rtl' : ''}`}
+            dir={questionLanguage === 'urdu' || questionLanguage === 'arabic' ? 'rtl' : 'ltr'}
             required
           />
         </div>
@@ -429,7 +650,7 @@ const QuizMaker = () => {
         {/* Options for MCQ */}
         {currentQuestion.question_type === 'mcq' && (
           <div className="options-section">
-            <h3>Options (Select correct answer with radio button)</h3>
+            <h3>Options - Select correct answer with radio button</h3>
             {currentQuestion.options.map((option, index) => (
               <div key={index} className="option-row">
                 <input
@@ -440,30 +661,14 @@ const QuizMaker = () => {
                   className="correct-radio"
                 />
                 
-                <div className="option-inputs">
-                  <input
-                    type="text"
-                    placeholder={`Option ${index + 1} (English)`}
-                    value={option.option_text}
-                    onChange={(e) => handleOptionChange(index, 'option_text', e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    placeholder={`Option ${index + 1} (Urdu)`}
-                    value={option.option_text_urdu}
-                    onChange={(e) => handleOptionChange(index, 'option_text_urdu', e.target.value)}
-                    className="rtl"
-                    dir="rtl"
-                  />
-                  <input
-                    type="text"
-                    placeholder={`Option ${index + 1} (Arabic)`}
-                    value={option.option_text_arabic}
-                    onChange={(e) => handleOptionChange(index, 'option_text_arabic', e.target.value)}
-                    className="rtl"
-                    dir="rtl"
-                  />
-                </div>
+                <input
+                  type="text"
+                  placeholder={`Option ${index + 1} in ${getLanguageLabel(questionLanguage)}`}
+                  value={option.option_text}
+                  onChange={(e) => handleOptionChange(index, e.target.value)}
+                  className={`option-input ${questionLanguage === 'urdu' || questionLanguage === 'arabic' ? 'rtl' : ''}`}
+                  dir={questionLanguage === 'urdu' || questionLanguage === 'arabic' ? 'rtl' : 'ltr'}
+                />
               </div>
             ))}
           </div>
@@ -478,14 +683,33 @@ const QuizMaker = () => {
               name="correct_answer"
               value={currentQuestion.correct_answer}
               onChange={handleQuestionChange}
-              placeholder="Enter correct answer"
+              placeholder={`Enter correct answer in ${getLanguageLabel(questionLanguage)}`}
+              className={questionLanguage === 'urdu' || questionLanguage === 'arabic' ? 'rtl' : ''}
+              dir={questionLanguage === 'urdu' || questionLanguage === 'arabic' ? 'rtl' : 'ltr'}
             />
           </div>
         )}
 
-        <button className="add-question-btn" onClick={addQuestion} type="button">
-          ➕ Add This Question
-        </button>
+        <div className="question-actions">
+          <button className="add-question-btn" onClick={addQuestion} type="button">
+            ➕ Add This Question
+          </button>
+          <button 
+            className="new-language-btn"
+            onClick={() => {
+              // Save current question if exists
+              if (currentQuestion.question_text.trim()) {
+                if (window.confirm('Switch language? Current question will be saved.')) {
+                  addQuestion();
+                }
+              }
+              setShowLanguageSelector(true);
+            }}
+            type="button"
+          >
+            🌐 Add Question in Another Language
+          </button>
+        </div>
       </div>
 
       {/* Added Questions List */}
@@ -495,7 +719,9 @@ const QuizMaker = () => {
           {quizData.questions.map((q, index) => (
             <div key={index} className="question-card">
               <div className="question-header">
-                <span>Q{index + 1}: {q.question_text.substring(0, 50)}...</span>
+                <span>Q{index + 1}: 
+                  {q.question_text || q.question_text_urdu || q.question_text_arabic || 'No text'}
+                </span>
                 <button onClick={() => removeQuestion(index)} className="remove-btn" type="button">
                   ❌ Remove
                 </button>
@@ -503,7 +729,12 @@ const QuizMaker = () => {
               <div className="question-meta">
                 <span>Type: {q.question_type}</span>
                 <span>Marks: {q.marks}</span>
-                <span>Language: {q.question_text_urdu ? 'Urdu' : q.question_text_arabic ? 'Arabic' : 'English'}</span>
+                <span>
+                  Language: 
+                  {q.question_text ? ' English' : 
+                   q.question_text_urdu ? ' Urdu' : 
+                   q.question_text_arabic ? ' Arabic' : ' Unknown'}
+                </span>
               </div>
             </div>
           ))}
@@ -521,9 +752,18 @@ const QuizMaker = () => {
           Publish immediately
         </label>
         
-        <button className="submit-quiz-btn" onClick={submitQuiz} type="button">
-          📝 Create Quiz
-        </button>
+        <div className="submit-actions">
+          <button 
+            className="back-to-language-btn"
+            onClick={() => setShowLanguageSelector(true)}
+            type="button"
+          >
+            ↩️ Back to Language Selector
+          </button>
+          <button className="submit-quiz-btn" onClick={submitQuiz} type="button">
+            📝 Create Quiz for {quizData.subject_name}
+          </button>
+        </div>
       </div>
     </div>
   );

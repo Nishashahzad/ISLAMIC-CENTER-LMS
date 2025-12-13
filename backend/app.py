@@ -2915,6 +2915,15 @@ def debug_lecture_file(lecture_id: int):
 #make comprehensice mcqs system
 
 # Pydantic models for quizzes
+# ------------------- QUIZ MODELS (UPDATED) -------------------
+
+# Updated models to match frontend structure
+class OptionBase(BaseModel):
+    option_text: str
+    option_text_urdu: Optional[str] = None
+    option_text_arabic: Optional[str] = None
+    is_correct: bool = False
+
 class QuestionBase(BaseModel):
     question_text: str
     question_text_urdu: Optional[str] = None
@@ -2922,16 +2931,7 @@ class QuestionBase(BaseModel):
     question_type: str = "mcq"
     marks: int = 1
     correct_answer: Optional[str] = None
-
-class OptionBase(BaseModel):
-    option_text: str
-    option_text_urdu: Optional[str] = None
-    option_text_arabic: Optional[str] = None
-    is_correct: bool = False
-
-class QuestionCreate(BaseModel):
-    question: QuestionBase
-    options: List[OptionBase]
+    options: List[OptionBase] = []  # Add options directly here
 
 class QuizCreate(BaseModel):
     teacher_id: str
@@ -2943,77 +2943,191 @@ class QuizCreate(BaseModel):
     total_marks: int = 100
     duration_minutes: int = 30
     is_published: bool = False
-    questions: List[QuestionCreate]
+    questions: List[QuestionBase]  # Remove QuestionCreate wrapper
+
+
+class QuestionCreate(BaseModel):
+    question: QuestionBase
+    options: List[OptionBase]
 
 # ------------------- QUIZ MANAGEMENT ENDPOINTS -------------------
+# ------------------- QUIZ CREATION ENDPOINT (WITH PROPER ERROR HANDLING) -------------------
+
+# ------------------- QUIZ CREATION ENDPOINT (SIMPLIFIED) -------------------
+
 
 @app.post("/create_quiz_with_questions")
 async def create_quiz_with_questions(quiz_data: QuizCreate):
-    """Create a quiz with all questions and options in one go"""
+    """Create a quiz with all questions and options - WITH SUBJECT VALIDATION - COMPLETE VERSION"""
     try:
         db = get_db()
         cursor = db.cursor(dictionary=True)
         
-        # Get teacher's numeric ID
-        cursor.execute("SELECT id FROM users WHERE userId = %s AND role = 'teacher'", (quiz_data.teacher_id,))
+        print(f"=== STARTING QUIZ CREATION ===")
+        print(f"Teacher ID: {quiz_data.teacher_id}")
+        print(f"Quiz title: {quiz_data.title}")
+        print(f"Subject: {quiz_data.subject_name}")
+        print(f"Questions received: {len(quiz_data.questions)}")
+        
+        # Log the full structure to debug
+        print(f"Full quiz data: {quiz_data.dict()}")
+        
+        # Get teacher's numeric ID and assigned subject
+        cursor.execute(
+            "SELECT id, userId, fullName, subject FROM users WHERE userId = %s AND role = 'teacher'", 
+            (quiz_data.teacher_id,)
+        )
         teacher = cursor.fetchone()
         
         if not teacher:
-            raise HTTPException(status_code=404, detail="Teacher not found")
+            print(f"ERROR: Teacher not found with userId: {quiz_data.teacher_id}")
+            cursor.close()
+            db.close()
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Teacher not found with ID: {quiz_data.teacher_id}"
+            )
         
         numeric_teacher_id = teacher['id']
+        teacher_subject = teacher.get('subject', '')
+        print(f"✓ Found teacher: {teacher['fullName']} (ID: {numeric_teacher_id})")
+        print(f"✓ Teacher's assigned subject: {teacher_subject}")
         
-        # Create quiz
+        # ⚠️ SUBJECT VALIDATION: Check if teacher can create quiz for this subject
+        if teacher_subject:
+            # Split multiple subjects (comma-separated)
+            assigned_subjects = [s.strip() for s in teacher_subject.split(',') if s.strip()]
+            subject_allowed = False
+            
+            # Check if quiz subject matches any of teacher's assigned subjects
+            for assigned_subj in assigned_subjects:
+                if is_subject_match(assigned_subj, quiz_data.subject_name):
+                    subject_allowed = True
+                    break
+            
+            if not subject_allowed:
+                cursor.close()
+                db.close()
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Not authorized. You can only create quizzes for your assigned subjects: {teacher_subject}"
+                )
+        else:
+            print(f"⚠️ Teacher has no assigned subjects")
+        
+        # ✅ CREATE QUIZ - ADD THIS PART BACK!
+        print(f"Creating quiz: {quiz_data.title}")
         cursor.execute(
             """INSERT INTO quizzes 
             (teacher_id, subject_name, title, description, start_date, end_date, 
              total_marks, duration_minutes, is_published, questions_count) 
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (numeric_teacher_id, quiz_data.subject_name, quiz_data.title, 
-             quiz_data.description, quiz_data.start_date, quiz_data.end_date,
-             quiz_data.total_marks, quiz_data.duration_minutes, 
-             quiz_data.is_published, len(quiz_data.questions))
+            (numeric_teacher_id, 
+             quiz_data.subject_name, 
+             quiz_data.title, 
+             quiz_data.description or "", 
+             quiz_data.start_date, 
+             quiz_data.end_date,
+             quiz_data.total_marks, 
+             quiz_data.duration_minutes, 
+             quiz_data.is_published, 
+             len(quiz_data.questions))
         )
         
         quiz_id = cursor.lastrowid
+        print(f"✓ Quiz created with ID: {quiz_id}")
         
         # Add questions and options
-        for q in quiz_data.questions:
+        questions_added = 0
+        options_added = 0
+        
+        for q_index, question in enumerate(quiz_data.questions):
+            print(f"\nProcessing question {q_index + 1}/{len(quiz_data.questions)}")
+            print(f"  Question text: {question.question_text[:50]}...")
+            print(f"  Question type: {question.question_type}")
+            print(f"  Marks: {question.marks}")
+            print(f"  Options: {len(question.options)}")
+            
+            # Get correct answer
+            correct_answer = question.correct_answer
+            if not correct_answer and question.options:
+                # Find correct option
+                for opt in question.options:
+                    if opt.is_correct:
+                        correct_answer = opt.option_text
+                        print(f"  Found correct answer from options: {correct_answer[:50]}...")
+                        break
+            
+            # Insert question
             cursor.execute(
                 """INSERT INTO questions 
                 (quiz_id, question_text, question_text_urdu, question_text_arabic, 
                  question_type, marks, correct_answer) 
                 VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (quiz_id, q.question.question_text, q.question.question_text_urdu,
-                 q.question.question_text_arabic, q.question.question_type,
-                 q.question.marks, q.question.correct_answer)
+                (quiz_id, 
+                 question.question_text or "",
+                 question.question_text_urdu or "",
+                 question.question_text_arabic or "",
+                 question.question_type,
+                 question.marks,
+                 correct_answer or "")
             )
             
             question_id = cursor.lastrowid
+            questions_added += 1
+            print(f"  ✓ Question added with ID: {question_id}")
             
             # Add options for this question
-            for opt in q.options:
+            for opt_index, option in enumerate(question.options):
                 cursor.execute(
                     """INSERT INTO options 
                     (question_id, option_text, option_text_urdu, option_text_arabic, is_correct) 
                     VALUES (%s, %s, %s, %s, %s)""",
-                    (question_id, opt.option_text, opt.option_text_urdu,
-                     opt.option_text_arabic, opt.is_correct)
+                    (question_id, 
+                     option.option_text or "",
+                     option.option_text_urdu or "",
+                     option.option_text_arabic or "",
+                     option.is_correct)
                 )
+                options_added += 1
+                if option.is_correct:
+                    print(f"    ✓ Option {opt_index + 1}: {option.option_text[:30]}... (CORRECT)")
+                else:
+                    print(f"    ✓ Option {opt_index + 1}: {option.option_text[:30]}...")
         
         db.commit()
+        print(f"\n=== QUIZ CREATION COMPLETE ===")
+        print(f"Total questions added: {questions_added}")
+        print(f"Total options added: {options_added}")
+        
         cursor.close()
         db.close()
         
         return {
-            "message": "Quiz created successfully",
+            "message": "Quiz created successfully!",
             "quiz_id": quiz_id,
-            "questions_added": len(quiz_data.questions),
+            "quiz_title": quiz_data.title,
+            "questions_added": questions_added,
+            "options_added": options_added,
             "success": True
         }
         
+    except HTTPException as e:
+        raise e  # Re-raise HTTP exceptions
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating quiz: {str(e)}")
+        error_msg = f"Error creating quiz: {str(e)}"
+        print(f"✗ ERROR: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        
+        # Close connections if they exist
+        try:
+            cursor.close()
+            db.close()
+        except:
+            pass
+            
+        raise HTTPException(status_code=500, detail=error_msg)
 
 @app.get("/quiz/{quiz_id}/full")
 def get_quiz_with_questions(quiz_id: int):
@@ -3435,3 +3549,1546 @@ async def speech_to_text(audio: UploadFile = File(...)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing speech: {str(e)}")
+
+#student take quiz
+
+# ------------------- STUDENT QUIZ ENDPOINTS -------------------
+
+@app.get("/student/quizzes/available/{student_userId}")
+def get_available_quizzes_for_student(student_userId: str, subject_name: str = None):
+    """Get available quizzes for a student - UPDATED"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get student info including their subjects
+        cursor.execute(
+            """SELECT id, current_year FROM users WHERE userId = %s""",
+            (student_userId,)
+        )
+        student = cursor.fetchone()
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        numeric_student_id = student['id']
+        
+        # Base query
+        query = """
+            SELECT DISTINCT q.*, u.fullName as teacher_name,
+                   (SELECT COUNT(*) FROM student_attempts 
+                    WHERE quiz_id = q.id AND student_id = %s) as attempts_count,
+                   (SELECT MAX(total_score) FROM student_attempts 
+                    WHERE quiz_id = q.id AND student_id = %s) as best_score
+            FROM quizzes q 
+            JOIN users u ON q.teacher_id = u.id 
+            WHERE q.is_published = TRUE 
+            AND q.is_active = TRUE
+            AND CURDATE() BETWEEN q.start_date AND q.end_date
+        """
+        
+        params = [numeric_student_id, numeric_student_id]
+        
+        # Add subject filter if provided
+        if subject_name:
+            query += " AND q.subject_name = %s"
+            params.append(subject_name)
+        
+        query += " ORDER BY q.end_date ASC"
+        
+        cursor.execute(query, params)
+        quizzes = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {"quizzes": quizzes, "success": True}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching quizzes: {str(e)}")
+
+
+@app.get("/student/quiz/{quiz_id}/questions")
+def get_quiz_questions_for_student(quiz_id: int, student_userId: str):
+    """Get quiz questions for student (without answers) - UPDATED"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Verify student exists
+        cursor.execute("SELECT id FROM users WHERE userId = %s", (student_userId,))
+        student = cursor.fetchone()
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        # Get quiz details
+        cursor.execute(
+            """SELECT q.*, u.fullName as teacher_name 
+               FROM quizzes q 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE q.id = %s AND q.is_published = TRUE""",
+            (quiz_id,)
+        )
+        quiz = cursor.fetchone()
+        
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Quiz not found or not available")
+        
+        # Get questions with all language versions
+        cursor.execute(
+            """SELECT 
+                   id, 
+                   question_text,
+                   question_text_urdu,
+                   question_text_arabic,
+                   question_type, 
+                   marks
+               FROM questions WHERE quiz_id = %s ORDER BY id""",
+            (quiz_id,)
+        )
+        questions = cursor.fetchall()
+        
+        # Get options with all language versions
+        for question in questions:
+            cursor.execute(
+                """SELECT 
+                       id, 
+                       option_text,
+                       option_text_urdu,
+                       option_text_arabic
+                   FROM options WHERE question_id = %s ORDER BY id""",
+                (question['id'],)
+            )
+            question['options'] = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "quiz": quiz,
+            "questions": questions,
+            "success": True
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching quiz questions: {str(e)}")
+
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse
+from datetime import datetime
+import traceback
+
+@app.post("/student/quiz/{quiz_id}/submit")
+async def submit_student_quiz(quiz_id: int, request_data: dict):
+    """Submit a quiz attempt - COMPLETELY FIXED VERSION"""
+    try:
+        print(f"\n{'='*60}")
+        print("📝 QUIZ SUBMISSION REQUEST RECEIVED")
+        print(f"{'='*60}")
+        
+        # Extract data from request
+        student_userId = request_data.get('student_userId')
+        answers = request_data.get('answers', [])
+        
+        print(f"Quiz ID: {quiz_id}")
+        print(f"Student UserId: {student_userId}")
+        print(f"Number of answers: {len(answers)}")
+        print(f"Answers data: {answers}")
+        
+        # Validate input
+        if not student_userId:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "detail": "Student ID is required",
+                    "error_type": "VALIDATION_ERROR"
+                }
+            )
+        
+        if not answers or not isinstance(answers, list):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "detail": "Answers must be provided as a list",
+                    "error_type": "VALIDATION_ERROR"
+                }
+            )
+        
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # 1. Get student
+        cursor.execute("SELECT id, fullName FROM users WHERE userId = %s", (student_userId,))
+        student = cursor.fetchone()
+        
+        if not student:
+            cursor.close()
+            db.close()
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "detail": f"Student not found: {student_userId}",
+                    "error_type": "STUDENT_NOT_FOUND"
+                }
+            )
+        
+        numeric_student_id = student['id']
+        print(f"✓ Student found: {student['fullName']} (ID: {numeric_student_id})")
+        
+        # 2. Get quiz
+        cursor.execute("""
+            SELECT q.*, u.fullName as teacher_name 
+            FROM quizzes q 
+            LEFT JOIN users u ON q.teacher_id = u.id 
+            WHERE q.id = %s
+        """, (quiz_id,))
+        quiz = cursor.fetchone()
+        
+        if not quiz:
+            cursor.close()
+            db.close()
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "detail": f"Quiz {quiz_id} not found",
+                    "error_type": "QUIZ_NOT_FOUND"
+                }
+            )
+        
+        print(f"✓ Quiz found: {quiz['title']}")
+        print(f"  Subject: {quiz['subject_name']}")
+        print(f"  Published: {quiz['is_published']}")
+        
+        # Check if quiz is published
+        if not quiz.get('is_published'):
+            cursor.close()
+            db.close()
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "detail": "This quiz is not published",
+                    "error_type": "QUIZ_NOT_PUBLISHED"
+                }
+            )
+        
+        # Check dates
+        current_date = datetime.now().date()
+        start_date = quiz.get('start_date')
+        end_date = quiz.get('end_date')
+        
+        if start_date and current_date < start_date:
+            cursor.close()
+            db.close()
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "detail": "Quiz has not started yet",
+                    "error_type": "QUIZ_NOT_STARTED"
+                }
+            )
+        
+        if end_date and current_date > end_date:
+            cursor.close()
+            db.close()
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "detail": "Quiz has ended",
+                    "error_type": "QUIZ_ENDED"
+                }
+            )
+        
+        # 3. Get quiz questions for validation
+        cursor.execute("""
+            SELECT id, marks, correct_answer, question_type 
+            FROM questions 
+            WHERE quiz_id = %s
+        """, (quiz_id,))
+        quiz_questions = cursor.fetchall()
+        question_ids = [q['id'] for q in quiz_questions]
+        
+        print(f"✓ Found {len(quiz_questions)} questions for quiz")
+        
+        # 4. Create quiz attempt
+        try:
+            cursor.execute("""
+                INSERT INTO student_attempts 
+                (student_id, quiz_id, total_score, submitted_at) 
+                VALUES (%s, %s, %s, NOW())
+            """, (numeric_student_id, quiz_id, 0.00))
+            
+            attempt_id = cursor.lastrowid
+            print(f"✓ Created attempt: ID {attempt_id}")
+            
+        except Exception as e:
+            cursor.close()
+            db.close()
+            print(f"✗ Error creating attempt: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "detail": f"Failed to create quiz attempt: {str(e)}",
+                    "error_type": "ATTEMPT_CREATION_FAILED"
+                }
+            )
+        
+        # 5. Process each answer
+        total_marks = 0.00
+        processed_count = 0
+        
+        for i, answer in enumerate(answers):
+            question_id = answer.get('question_id')
+            selected_option_id = answer.get('selected_option_id')
+            answer_text = answer.get('answer_text', '').strip() if answer.get('answer_text') else None
+            
+            print(f"\n  Processing answer {i + 1}:")
+            print(f"    Question ID: {question_id}")
+            print(f"    Option ID: {selected_option_id}")
+            print(f"    Answer Text: {answer_text}")
+            
+            # Validate question exists in this quiz
+            if question_id not in question_ids:
+                print(f"    ⚠️  Question {question_id} not in this quiz. Skipping.")
+                continue
+            
+            # Get question details
+            question = next((q for q in quiz_questions if q['id'] == question_id), None)
+            if not question:
+                print(f"    ⚠️  Question details not found. Skipping.")
+                continue
+            
+            is_correct = False
+            marks_obtained = 0.00
+            
+            # Handle MCQ/True False
+            if selected_option_id:
+                print(f"    📋 Checking option {selected_option_id}...")
+                cursor.execute("""
+                    SELECT is_correct FROM options 
+                    WHERE id = %s AND question_id = %s
+                """, (selected_option_id, question_id))
+                
+                option = cursor.fetchone()
+                if option:
+                    is_correct = bool(option['is_correct'])
+                    marks_obtained = float(question['marks']) if is_correct else 0.00
+                    print(f"    {'✅' if is_correct else '❌'} Option result: correct={is_correct}, marks={marks_obtained}")
+                else:
+                    print(f"    ⚠️  Option not found, treating as incorrect")
+            
+            # Handle short answer
+            elif answer_text:
+                print(f"    📝 Checking short answer...")
+                correct_answer = question.get('correct_answer', '').strip().lower() if question.get('correct_answer') else ''
+                if correct_answer:
+                    is_correct = answer_text.lower() == correct_answer
+                    marks_obtained = float(question['marks']) if is_correct else 0.00
+                    print(f"    {'✅' if is_correct else '❌'} Short answer: correct={is_correct}, marks={marks_obtained}")
+                else:
+                    print(f"    ⚠️  No correct answer defined for this question")
+            
+            # Insert answer
+            try:
+                cursor.execute("""
+                    INSERT INTO student_answers 
+                    (attempt_id, question_id, selected_option_id, answer_text, is_correct, marks_obtained) 
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    attempt_id,
+                    question_id,
+                    selected_option_id if selected_option_id else None,
+                    answer_text,
+                    is_correct,
+                    marks_obtained
+                ))
+                
+                total_marks += marks_obtained
+                processed_count += 1
+                print(f"    ✓ Answer saved successfully")
+                
+            except Exception as insert_error:
+                print(f"    ✗ Failed to save answer: {str(insert_error)}")
+                continue
+        
+        # 6. Update attempt with total score
+        cursor.execute("""
+            UPDATE student_attempts 
+            SET total_score = %s 
+            WHERE id = %s
+        """, (float(total_marks), attempt_id))
+        
+        # 7. Update quiz attempts count
+        cursor.execute("""
+            UPDATE quizzes 
+            SET attempts = attempts + 1 
+            WHERE id = %s
+        """, (quiz_id,))
+        
+        db.commit()
+        
+        # 8. Calculate percentage
+        percentage = 0.00
+        total_quiz_marks = quiz.get('total_marks', 100)
+        if total_quiz_marks and total_quiz_marks > 0:
+            percentage = round((total_marks / float(total_quiz_marks)) * 100, 2)
+        
+        print(f"\n{'='*60}")
+        print("🎉 QUIZ SUBMISSION COMPLETE")
+        print(f"{'='*60}")
+        print(f"Attempt ID: {attempt_id}")
+        print(f"Processed answers: {processed_count}/{len(answers)}")
+        print(f"Total marks: {total_marks}/{total_quiz_marks}")
+        print(f"Percentage: {percentage}%")
+        
+        response_data = {
+            "success": True,
+            "attempt_id": attempt_id,
+            "total_score": total_marks,
+            "percentage": percentage,
+            "quiz_title": quiz['title'],
+            "subject_name": quiz['subject_name'],
+            "teacher_name": quiz.get('teacher_name', 'Unknown'),
+            "total_marks": total_quiz_marks,
+            "processed_answers": processed_count,
+            "message": "Quiz submitted successfully!"
+        }
+        
+        cursor.close()
+        db.close()
+        
+        return JSONResponse(status_code=200, content=response_data)
+        
+    except Exception as e:
+        print(f"\n{'✗'*60}")
+        print("💥 CRITICAL ERROR IN QUIZ SUBMISSION")
+        print(f"{'✗'*60}")
+        print(f"Error: {str(e)}")
+        traceback.print_exc()
+        
+        # Cleanup
+        try:
+            if 'cursor' in locals():
+                cursor.close()
+            if 'db' in locals():
+                db.close()
+        except:
+            pass
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "detail": f"Internal server error: {str(e)}",
+                "error_type": "INTERNAL_SERVER_ERROR",
+                "traceback": traceback.format_exc()[:500]  # First 500 chars of traceback
+            }
+        )
+
+@app.get("/student/{userId}/quiz/results")
+def get_student_quiz_results_all(userId: str):
+    """Get all quiz results for a student"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            """SELECT a.*, q.title as quiz_title, q.subject_name, q.total_marks,
+                      u.fullName as teacher_name,
+                      ROUND((a.total_score / q.total_marks) * 100, 2) as percentage
+               FROM student_attempts a 
+               JOIN quizzes q ON a.quiz_id = q.id 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE a.student_id = (SELECT id FROM users WHERE userId = %s)
+               ORDER BY a.submitted_at DESC""",
+            (userId,)
+        )
+        
+        results = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {"results": results, "success": True}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching results: {str(e)}")
+
+
+@app.get("/student/quiz/result/{attempt_id}")
+def get_quiz_result_details(attempt_id: int, student_userId: str):
+    """Get detailed quiz result for a specific attempt - FIXED FOR EMPTY FIELDS"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Verify the attempt belongs to the student
+        cursor.execute(
+            """SELECT a.* FROM student_attempts a 
+               JOIN users u ON a.student_id = u.id 
+               WHERE a.id = %s AND u.userId = %s""",
+            (attempt_id, student_userId)
+        )
+        
+        attempt = cursor.fetchone()
+        
+        if not attempt:
+            raise HTTPException(status_code=404, detail="Attempt not found or access denied")
+        
+        # Get quiz details
+        cursor.execute(
+            """SELECT q.*, u.fullName as teacher_name 
+               FROM quizzes q 
+               JOIN users u ON q.teacher_id = u.id 
+               WHERE q.id = %s""",
+            (attempt['quiz_id'],)
+        )
+        
+        quiz = cursor.fetchone()
+        
+        # Get detailed answers with COALESCE to handle empty fields
+        cursor.execute(
+            """SELECT 
+                   sa.*, 
+                   # Handle question text with fallbacks
+                   COALESCE(NULLIF(q.question_text, ''), 
+                           NULLIF(q.question_text_arabic, ''), 
+                           NULLIF(q.question_text_urdu, ''), 
+                           'Question text not available') as question_text,
+                   q.question_text_arabic,
+                   q.question_text_urdu,
+                   q.question_type, 
+                   q.marks, 
+                   q.correct_answer,
+                   # Handle selected option with fallbacks
+                   COALESCE(NULLIF(o.option_text, ''), 
+                           NULLIF(o.option_text_arabic, ''), 
+                           NULLIF(o.option_text_urdu, ''), 
+                           '') as selected_option_text,
+                   o.option_text_arabic as selected_option_text_arabic,
+                   o.option_text_urdu as selected_option_text_urdu,
+                   # Handle correct option with fallbacks
+                   COALESCE(NULLIF(co.option_text, ''), 
+                           NULLIF(co.option_text_arabic, ''), 
+                           NULLIF(co.option_text_urdu, ''), 
+                           '') as correct_option_text,
+                   co.option_text_arabic as correct_option_text_arabic,
+                   co.option_text_urdu as correct_option_text_urdu
+               FROM student_answers sa 
+               JOIN questions q ON sa.question_id = q.id 
+               LEFT JOIN options o ON sa.selected_option_id = o.id 
+               LEFT JOIN options co ON co.question_id = q.id AND co.is_correct = TRUE
+               WHERE sa.attempt_id = %s 
+               ORDER BY sa.id""",
+            (attempt_id,)
+        )
+        
+        detailed_answers = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "quiz": quiz,
+            "attempt": attempt,
+            "detailed_answers": detailed_answers,
+            "percentage": round((attempt['total_score'] / quiz['total_marks']) * 100, 2) if quiz['total_marks'] else 0,
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching result details: {str(e)}")
+
+@app.post("/quiz/{quiz_id}/start_attempt")
+def start_quiz_attempt(quiz_id: int, student_userId: str):
+    """Start a new quiz attempt for student - CORRECTED"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get student numeric ID
+        cursor.execute("SELECT id FROM users WHERE userId = %s", (student_userId,))
+        student = cursor.fetchone()
+        
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        numeric_student_id = student['id']
+        
+        # Check if quiz exists and is published
+        cursor.execute(
+            """SELECT * FROM quizzes 
+               WHERE id = %s AND is_published = TRUE""",
+            (quiz_id,)
+        )
+        quiz = cursor.fetchone()
+        
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Quiz not available")
+        
+        # Check current date against quiz dates
+        from datetime import datetime
+        current_date = datetime.now().date()
+        start_date = quiz['start_date']
+        end_date = quiz['end_date']
+        
+        if current_date < start_date:
+            raise HTTPException(status_code=403, detail="Quiz has not started yet")
+        if current_date > end_date:
+            raise HTTPException(status_code=403, detail="Quiz has ended")
+        
+        # Start new attempt - CORRECTED FOR YOUR DATABASE
+        cursor.execute(
+            """INSERT INTO student_attempts 
+               (student_id, quiz_id, total_score) 
+               VALUES (%s, %s, 0)""",
+            (numeric_student_id, quiz_id)
+        )
+        
+        attempt_id = cursor.lastrowid
+        
+        db.commit()
+        cursor.close()
+        db.close()
+        
+        return {
+            "attempt_id": attempt_id,
+            "quiz": quiz,
+            "success": True,
+            "message": "Quiz attempt started"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting quiz: {str(e)}")
+    
+# Add this endpoint to your FastAPI backend
+@app.get("/teacher/{teacher_id}/assigned_subjects")
+def get_teacher_assigned_subjects(teacher_id: str):
+    """Get only the subjects assigned to a specific teacher"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get teacher's assigned subject
+        cursor.execute(
+            "SELECT subject FROM users WHERE userId = %s AND role = 'teacher'", 
+            (teacher_id,)
+        )
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            raise HTTPException(status_code=404, detail="Teacher not found")
+        
+        teacher_subject = teacher.get("subject", "")
+        
+        if not teacher_subject:
+            cursor.close()
+            db.close()
+            return {
+                "assigned_subjects": [],
+                "teacher_subject": "",
+                "success": True,
+                "message": "No subjects assigned to this teacher"
+            }
+        
+        # Split multiple subjects (comma-separated)
+        assigned_subjects = [s.strip() for s in teacher_subject.split(',') if s.strip()]
+        
+        # Get all available subjects for matching
+        all_subjects_set = set()
+        for year_subjects in predefined_subjects.values():
+            for subject in year_subjects:
+                all_subjects_set.add(subject["subject_name"])
+        
+        # Find exact matches for teacher's subjects
+        matched_subjects = []
+        for teacher_subj in assigned_subjects:
+            for available_subj in all_subjects_set:
+                if is_subject_match(teacher_subj, available_subj):
+                    matched_subjects.append(available_subj)
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "assigned_subjects": matched_subjects,
+            "teacher_subject": teacher_subject,
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching teacher subjects: {str(e)}")
+  # ------------------- ASSIGNMENT SUBMISSION SYSTEM -------------------
+
+# Pydantic models for assignment submissions
+class AssignmentSubmissionCreate(BaseModel):
+    student_userId: str
+    assignment_id: int
+    submission_text: Optional[str] = None
+    file_name: Optional[str] = None
+    file_path: Optional[str] = None
+
+class AssignmentGradeUpdate(BaseModel):
+    marks_obtained: float
+    feedback: Optional[str] = None
+    graded_by: str  # teacher ID
+
+# Endpoint for teachers to get all submissions for an assignment
+@app.get("/assignments/{assignment_id}/submissions")
+def get_assignment_submissions(assignment_id: int, teacher_userId: str):
+    """Get all submissions for an assignment (teacher view) - DEBUG VERSION"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"🔍 DEBUG: Starting get_assignment_submissions for assignment {assignment_id}")
+        print(f"🔍 DEBUG: Teacher userId: {teacher_userId}")
+        
+        # Verify teacher owns this assignment
+        cursor.execute(
+            """SELECT a.id, a.teacher_id, a.title, u.userId as teacher_userId 
+               FROM assignments a 
+               JOIN users u ON a.teacher_id = u.id 
+               WHERE u.userId = %s AND a.id = %s""",
+            (teacher_userId, assignment_id)
+        )
+        
+        assignment_auth = cursor.fetchone()
+        print(f"🔍 DEBUG: Teacher authorization check: {assignment_auth}")
+        
+        if not assignment_auth:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Not authorized to view these submissions or assignment not found",
+                "success": False,
+                "debug": {
+                    "assignment_id": assignment_id,
+                    "teacher_userId": teacher_userId,
+                    "message": "Teacher doesn't own this assignment or assignment doesn't exist"
+                }
+            }
+        
+        # Debug: Check what's in assignment_submissions table
+        cursor.execute("SELECT COUNT(*) as count FROM assignment_submissions WHERE assignment_id = %s", (assignment_id,))
+        count_result = cursor.fetchone()
+        print(f"🔍 DEBUG: Total submissions in assignment_submissions table: {count_result['count']}")
+        
+        # Debug: Show all submissions for this assignment
+        cursor.execute("SELECT * FROM assignment_submissions WHERE assignment_id = %s", (assignment_id,))
+        raw_submissions = cursor.fetchall()
+        print(f"🔍 DEBUG: Raw submissions from assignment_submissions table:")
+        for sub in raw_submissions:
+            print(f"  - ID: {sub.get('id')}, Student ID: {sub.get('student_id')}, Status: {sub.get('status')}")
+        
+        # Debug: Check the users table for student info
+        if raw_submissions:
+            student_ids = [str(sub['student_id']) for sub in raw_submissions if sub.get('student_id')]
+            print(f"🔍 DEBUG: Student IDs in submissions: {student_ids}")
+            
+            cursor.execute(f"SELECT id, userId, fullName FROM users WHERE id IN ({','.join(student_ids)})")
+            students = cursor.fetchall()
+            print(f"🔍 DEBUG: Students found in users table: {students}")
+        
+        # Get all submissions with student info using LEFT JOIN to ensure we get all submissions
+        # even if student info is missing
+        query = """
+            SELECT 
+                s.*,
+                u.userId as student_userId,
+                u.fullName as student_name,
+                u.email as student_email,
+                u.phone as student_phone,
+                a.title as assignment_title,
+                a.total_marks as assignment_total_marks,
+                TIMESTAMPDIFF(HOUR, s.submission_date, a.due_date) as hours_early
+            FROM assignment_submissions s
+            LEFT JOIN assignments a ON s.assignment_id = a.id
+            LEFT JOIN users u ON s.student_id = u.id
+            WHERE s.assignment_id = %s
+            ORDER BY s.submission_date DESC
+        """
+        
+        print(f"🔍 DEBUG: Executing query: {query}")
+        cursor.execute(query, (assignment_id,))
+        submissions = cursor.fetchall()
+        
+        print(f"🔍 DEBUG: Query returned {len(submissions)} submissions")
+        for i, sub in enumerate(submissions):
+            print(f"  Submission {i+1}: ID={sub.get('id')}, Student={sub.get('student_name')}, Student ID={sub.get('student_id')}")
+        
+        # Get assignment details
+        cursor.execute(
+            """SELECT a.*, u.fullName as teacher_name 
+               FROM assignments a 
+               JOIN users u ON a.teacher_id = u.id 
+               WHERE a.id = %s""",
+            (assignment_id,)
+        )
+        assignment_details = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        print(f"🔍 DEBUG: Final response - Assignment: {assignment_details.get('title') if assignment_details else 'Not found'}")
+        print(f"🔍 DEBUG: Final response - Submissions count: {len(submissions)}")
+        
+        # Convert decimal to float for JSON serialization
+        for sub in submissions:
+            if 'marks_obtained' in sub and sub['marks_obtained'] is not None:
+                sub['marks_obtained'] = float(sub['marks_obtained'])
+        
+        return {
+            "assignment": assignment_details,
+            "submissions": submissions,
+            "total_submissions": len(submissions),
+            "success": True,
+            "debug": {
+                "raw_count": count_result['count'],
+                "assignment_id": assignment_id,
+                "teacher_userId": teacher_userId,
+                "query_used": query
+            }
+        }
+        
+    except Exception as e:
+        print(f"🔍 DEBUG: ERROR in get_assignment_submissions: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": f"Error fetching submissions: {str(e)}",
+            "success": False
+        }
+
+# Debug endpoint to check database directly
+@app.get("/debug/direct-submissions/{assignment_id}")
+def debug_direct_submissions(assignment_id: int):
+    """Direct debug endpoint to check submissions without authorization"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Check if assignment exists
+        cursor.execute("SELECT * FROM assignments WHERE id = %s", (assignment_id,))
+        assignment = cursor.fetchone()
+        
+        if not assignment:
+            return {"error": "Assignment not found", "success": False}
+        
+        # Get all submissions without JOIN first
+        cursor.execute("SELECT * FROM assignment_submissions WHERE assignment_id = %s", (assignment_id,))
+        raw_submissions = cursor.fetchall()
+        
+        # Try to get student info
+        submissions_with_student = []
+        for sub in raw_submissions:
+            student_id = sub.get('student_id')
+            if student_id:
+                cursor.execute("SELECT userId, fullName, email FROM users WHERE id = %s", (student_id,))
+                student = cursor.fetchone()
+                if student:
+                    sub['student_userId'] = student['userId']
+                    sub['student_name'] = student['fullName']
+                    sub['student_email'] = student['email']
+                else:
+                    sub['student_userId'] = 'Unknown'
+                    sub['student_name'] = 'Student Not Found'
+                    sub['student_email'] = ''
+            submissions_with_student.append(sub)
+        
+        # Get teacher info
+        teacher_id = assignment.get('teacher_id')
+        teacher_info = {}
+        if teacher_id:
+            cursor.execute("SELECT userId, fullName FROM users WHERE id = %s", (teacher_id,))
+            teacher = cursor.fetchone()
+            if teacher:
+                teacher_info = teacher
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "assignment": assignment,
+            "teacher": teacher_info,
+            "submissions": submissions_with_student,
+            "raw_submissions": raw_submissions,
+            "submission_count": len(raw_submissions),
+            "assignment_id": assignment_id,
+            "teacher_id": teacher_id
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e), "success": False}
+
+@app.get("/submission/{submission_id}")
+def get_submission_details(submission_id: int, teacher_userId: str = None):
+    """Get details of a specific submission"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"DEBUG: Getting submission {submission_id}")
+        
+        # Get submission with student info
+        query = """
+            SELECT 
+                s.*,
+                u.userId as student_userId,
+                u.fullName as student_name,
+                u.email as student_email,
+                a.title as assignment_title,
+                a.subject_name,
+                a.teacher_id,
+                t.userId as teacher_userId,
+                t.fullName as teacher_name
+            FROM assignment_submissions s
+            LEFT JOIN users u ON s.student_id = u.id
+            LEFT JOIN assignments a ON s.assignment_id = a.id
+            LEFT JOIN users t ON a.teacher_id = t.id
+            WHERE s.id = %s
+        """
+        
+        cursor.execute(query, (submission_id,))
+        submission = cursor.fetchone()
+        
+        if not submission:
+            cursor.close()
+            db.close()
+            return {"error": "Submission not found", "success": False}
+        
+        # If teacher_userId provided, verify ownership
+        if teacher_userId:
+            if submission['teacher_userId'] != teacher_userId:
+                cursor.close()
+                db.close()
+                return {
+                    "error": "Not authorized to view this submission",
+                    "success": False
+                }
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "submission": submission,
+            "success": True
+        }
+        
+    except Exception as e:
+        print(f"Error in get_submission_details: {str(e)}")
+        return {"error": str(e), "success": False}
+
+# Add these imports at the top
+import os
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
+
+# Add this endpoint to handle file downloads
+@app.get("/assignments/submissions/{submission_id}/download")
+def download_submission_file(submission_id: int, teacher_userId: str = None):
+    """Download a submission file"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get submission details
+        cursor.execute(
+            """SELECT s.*, a.teacher_id, u.userId as student_userId 
+               FROM assignment_submissions s
+               JOIN assignments a ON s.assignment_id = a.id
+               LEFT JOIN users u ON s.student_id = u.id
+               WHERE s.id = %s""",
+            (submission_id,)
+        )
+        submission = cursor.fetchone()
+        
+        if not submission:
+            cursor.close()
+            db.close()
+            raise HTTPException(status_code=404, detail="Submission not found")
+        
+        # Verify teacher owns this assignment if teacher_userId is provided
+        if teacher_userId:
+            cursor.execute(
+                """SELECT u.userId FROM users u 
+                   WHERE u.id = %s AND u.userId = %s""",
+                (submission['teacher_id'], teacher_userId)
+            )
+            teacher = cursor.fetchone()
+            
+            if not teacher:
+                cursor.close()
+                db.close()
+                raise HTTPException(status_code=403, detail="Not authorized to download this file")
+        
+        cursor.close()
+        db.close()
+        
+        # Get file path
+        file_path = submission.get('file_path')
+        if not file_path or not os.path.exists(file_path):
+            print(f"DEBUG: File not found at path: {file_path}")
+            print(f"DEBUG: Current working directory: {os.getcwd()}")
+            print(f"DEBUG: Submission file_name: {submission.get('file_name')}")
+            
+            # Try alternative paths
+            base_path = os.path.join(os.getcwd(), 'uploads', 'assignment_submissions')
+            possible_paths = [
+                file_path,
+                os.path.join(base_path, str(submission_id), submission.get('file_name', '')),
+                os.path.join(base_path, str(submission['assignment_id']), submission.get('file_name', '')),
+                os.path.join(base_path, submission.get('file_name', ''))
+            ]
+            
+            for path in possible_paths:
+                if path and os.path.exists(path):
+                    file_path = path
+                    break
+            
+            if not file_path or not os.path.exists(file_path):
+                raise HTTPException(status_code=404, detail="File not found on server")
+        
+        # Get file name for download
+        file_name = submission.get('file_name', 'submission_file')
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            print(f"ERROR: File does not exist at: {file_path}")
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        print(f"DEBUG: Serving file from: {file_path}")
+        
+        # Serve the file
+        return FileResponse(
+            path=file_path,
+            filename=file_name,
+            media_type='application/octet-stream'
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in download_submission_file: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error downloading file: {str(e)}")
+
+# Add this endpoint to get file for viewing in browser
+@app.get("/assignments/submissions/{submission_id}/view")
+def view_submission_file(submission_id: int, teacher_userId: str = None):
+    """View a submission file in browser (for PDFs, images, etc.)"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get submission details
+        cursor.execute(
+            """SELECT s.*, a.teacher_id, u.userId as student_userId 
+               FROM assignment_submissions s
+               JOIN assignments a ON s.assignment_id = a.id
+               LEFT JOIN users u ON s.student_id = u.id
+               WHERE s.id = %s""",
+            (submission_id,)
+        )
+        submission = cursor.fetchone()
+        
+        if not submission:
+            cursor.close()
+            db.close()
+            raise HTTPException(status_code=404, detail="Submission not found")
+        
+        # Verify teacher owns this assignment if teacher_userId is provided
+        if teacher_userId:
+            cursor.execute(
+                """SELECT u.userId FROM users u 
+                   WHERE u.id = %s AND u.userId = %s""",
+                (submission['teacher_id'], teacher_userId)
+            )
+            teacher = cursor.fetchone()
+            
+            if not teacher:
+                cursor.close()
+                db.close()
+                raise HTTPException(status_code=403, detail="Not authorized to view this file")
+        
+        cursor.close()
+        db.close()
+        
+        # Get file path
+        file_path = submission.get('file_path')
+        file_name = submission.get('file_name', '')
+        
+        if not file_path or not os.path.exists(file_path):
+            # Try to find the file
+            base_path = os.path.join(os.getcwd(), 'uploads', 'assignment_submissions')
+            possible_paths = [
+                file_path,
+                os.path.join(base_path, str(submission_id), file_name),
+                os.path.join(base_path, str(submission['assignment_id']), file_name),
+                os.path.join(base_path, file_name)
+            ]
+            
+            for path in possible_paths:
+                if path and os.path.exists(path):
+                    file_path = path
+                    break
+        
+        if not file_path or not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found on server")
+        
+        # Determine content type based on file extension
+        file_ext = os.path.splitext(file_name)[1].lower()
+        
+        content_type_map = {
+            '.pdf': 'application/pdf',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.txt': 'text/plain',
+            '.text': 'text/plain',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.mp4': 'video/mp4',
+            '.avi': 'video/x-msvideo',
+            '.mov': 'video/quicktime'
+        }
+        
+        content_type = content_type_map.get(file_ext, 'application/octet-stream')
+        
+        return FileResponse(
+            path=file_path,
+            filename=file_name,
+            media_type=content_type
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in view_submission_file: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error viewing file: {str(e)}")
+
+# Debug endpoint to check file paths
+@app.get("/debug/submission/{submission_id}/file-info")
+def debug_submission_file_info(submission_id: int):
+    """Debug endpoint to check file information"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        cursor.execute(
+            "SELECT id, assignment_id, student_id, file_name, file_path FROM assignment_submissions WHERE id = %s",
+            (submission_id,)
+        )
+        submission = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        if not submission:
+            return {"error": "Submission not found", "success": False}
+        
+        # Check file existence
+        file_exists = False
+        actual_path = None
+        
+        if submission['file_path'] and os.path.exists(submission['file_path']):
+            file_exists = True
+            actual_path = submission['file_path']
+        else:
+            # Try to find it
+            base_path = os.path.join(os.getcwd(), 'uploads', 'assignment_submissions')
+            possible_paths = [
+                submission['file_path'],
+                os.path.join(base_path, str(submission_id), submission['file_name']),
+                os.path.join(base_path, str(submission['assignment_id']), submission['file_name']),
+                os.path.join(base_path, submission['file_name'])
+            ]
+            
+            for path in possible_paths:
+                if path and os.path.exists(path):
+                    file_exists = True
+                    actual_path = path
+                    break
+        
+        return {
+            "success": True,
+            "submission_id": submission_id,
+            "file_name": submission['file_name'],
+            "file_path": submission['file_path'],
+            "file_exists": file_exists,
+            "actual_path": actual_path,
+            "current_directory": os.getcwd(),
+            "uploads_directory_exists": os.path.exists(os.path.join(os.getcwd(), 'uploads'))
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e), "success": False}
+
+# Endpoint to grade a submission
+
+@app.post("/assignments/submissions/{submission_id}/grade")
+def grade_submission(submission_id: int, teacher_userId: str, grade_data: AssignmentGradeUpdate):
+    """Grade a student submission"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"DEBUG: Grading submission {submission_id} by teacher {teacher_userId}")
+        print(f"DEBUG: Grade data: {grade_data}")
+        
+        # 1. Get submission details WITHOUT total_marks column
+        cursor.execute("""
+            SELECT s.*, a.teacher_id, a.title as assignment_title
+            FROM assignment_submissions s
+            JOIN assignments a ON s.assignment_id = a.id
+            WHERE s.id = %s
+        """, (submission_id,))
+        
+        submission = cursor.fetchone()
+        
+        if not submission:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Submission not found",
+                "success": False
+            }
+        
+        # 2. Verify teacher owns this assignment
+        cursor.execute("""
+            SELECT u.id, u.userId, u.fullName 
+            FROM users u 
+            WHERE u.id = %s AND u.userId = %s AND u.role = 'teacher'
+        """, (submission['teacher_id'], teacher_userId))
+        
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Not authorized to grade this submission",
+                "success": False,
+                "debug": {
+                    "teacher_id_in_assignment": submission['teacher_id'],
+                    "teacher_userId_provided": teacher_userId
+                }
+            }
+        
+        # 3. Use default total marks (100) since column doesn't exist
+        total_marks = 100  # Default value since column doesn't exist
+        
+        if grade_data.marks_obtained < 0 or grade_data.marks_obtained > total_marks:
+            cursor.close()
+            db.close()
+            return {
+                "error": f"Marks must be between 0 and {total_marks}",
+                "success": False
+            }
+        
+        # 4. Update the submission with grade AND status
+        update_query = """
+            UPDATE assignment_submissions 
+            SET marks_obtained = %s,
+                feedback = %s,
+                graded_by = %s,
+                graded_date = NOW(),
+                status = 'graded'
+            WHERE id = %s
+        """
+        
+        print(f"DEBUG: Updating submission with marks: {grade_data.marks_obtained}")
+        
+        cursor.execute(update_query, (
+            float(grade_data.marks_obtained),
+            grade_data.feedback or "",
+            teacher['id'],  # Use teacher's database ID
+            submission_id
+        ))
+        
+        # 5. Update assignment submissions count (removed total_marks reference)
+        cursor.execute("""
+            UPDATE assignments 
+            SET submissions = (
+                SELECT COUNT(*) 
+                FROM assignment_submissions 
+                WHERE assignment_id = %s AND status IN ('submitted', 'graded', 'late')
+            )
+            WHERE id = %s
+        """, (submission['assignment_id'], submission['assignment_id']))
+        
+        db.commit()
+        
+        # 6. Get updated submission for response (without total_marks)
+        cursor.execute("""
+            SELECT 
+                s.*,
+                u.fullName as student_name,
+                u.email as student_email,
+                t.fullName as teacher_name,
+                a.title as assignment_title
+            FROM assignment_submissions s
+            JOIN users u ON s.student_id = u.id
+            JOIN assignments a ON s.assignment_id = a.id
+            LEFT JOIN users t ON s.graded_by = t.id
+            WHERE s.id = %s
+        """, (submission_id,))
+        
+        updated_submission = cursor.fetchone()
+        
+        # 7. Add total marks to response (using default)
+        if updated_submission:
+            updated_submission['assignment_total_marks'] = total_marks
+        
+        # 8. Create notification for student (optional)
+        try:
+            cursor.execute("""
+                INSERT INTO notifications (teacher_id, subject_name, title, message, priority)
+                VALUES (%s, %s, %s, %s, 'high')
+            """, (
+                teacher['id'],
+                "Assignment Graded",
+                f"Your assignment '{submission['assignment_title']}' has been graded",
+                f"Teacher {teacher['fullName']} has graded your assignment. You received {grade_data.marks_obtained}/{total_marks} marks.",
+                'high'
+            ))
+            db.commit()
+        except Exception as e:
+            print(f"Note: Could not create notification: {e}")
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "message": "Grade submitted successfully",
+            "submission": updated_submission,
+            "debug": {
+                "submission_id": submission_id,
+                "marks_set": grade_data.marks_obtained,
+                "status_set": "graded",
+                "total_marks_used": total_marks
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error in grade_submission: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": f"Error submitting grade: {str(e)}",
+            "success": False
+        }
+
+
+# Endpoint for student to get their submissions for a specific subject
+@app.get("/student/{student_userId}/assignment_submissions")
+def get_student_submissions(student_userId: str, subject_name: str = None):
+    """Get all submissions for a student, optionally filtered by subject"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"DEBUG: Getting submissions for student {student_userId}, subject: {subject_name}")
+        
+        # Get student ID from userId
+        cursor.execute("SELECT id FROM users WHERE userId = %s AND role = 'student'", (student_userId,))
+        student = cursor.fetchone()
+        
+        if not student:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Student not found",
+                "success": False
+            }
+        
+        student_id = student['id']
+        
+        # Build query based on whether subject_name is provided
+        if subject_name:
+            query = """
+                SELECT 
+                    s.*,
+                    a.title as assignment_title,
+                    a.description as assignment_description,
+                    a.subject_name,
+                    a.due_date as assignment_due_date,
+                    t.fullName as teacher_name,
+                    t.userId as teacher_userId,
+                    g.fullName as graded_by_name
+                FROM assignment_submissions s
+                JOIN assignments a ON s.assignment_id = a.id
+                JOIN users t ON a.teacher_id = t.id
+                LEFT JOIN users g ON s.graded_by = g.id
+                WHERE s.student_id = %s 
+                AND a.subject_name = %s
+                ORDER BY s.submission_date DESC
+            """
+            cursor.execute(query, (student_id, subject_name))
+        else:
+            query = """
+                SELECT 
+                    s.*,
+                    a.title as assignment_title,
+                    a.description as assignment_description,
+                    a.subject_name,
+                    a.due_date as assignment_due_date,
+                    t.fullName as teacher_name,
+                    t.userId as teacher_userId,
+                    g.fullName as graded_by_name
+                FROM assignment_submissions s
+                JOIN assignments a ON s.assignment_id = a.id
+                JOIN users t ON a.teacher_id = t.id
+                LEFT JOIN users g ON s.graded_by = g.id
+                WHERE s.student_id = %s
+                ORDER BY s.submission_date DESC
+            """
+            cursor.execute(query, (student_id,))
+        
+        submissions = cursor.fetchall()
+        
+        # Convert decimal to float for JSON serialization
+        for sub in submissions:
+            if 'marks_obtained' in sub and sub['marks_obtained'] is not None:
+                sub['marks_obtained'] = float(sub['marks_obtained'])
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "submissions": submissions,
+            "total_submissions": len(submissions)
+        }
+        
+    except Exception as e:
+        print(f"Error in get_student_submissions: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": f"Error fetching submissions: {str(e)}",
+            "success": False
+        }
+
+# Also, let's add an endpoint for getting assignment details with subject filtering
+@app.get("/assignments/{teacher_userId}/{subject_name}")
+def get_assignments_by_subject(teacher_userId: str, subject_name: str):
+    """Get assignments for a specific teacher and subject"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"DEBUG: Getting assignments for teacher {teacher_userId}, subject: {subject_name}")
+        
+        # Get teacher ID
+        cursor.execute("SELECT id FROM users WHERE userId = %s AND role = 'teacher'", (teacher_userId,))
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Teacher not found",
+                "success": False
+            }
+        
+        # Get assignments for this teacher and subject
+        query = """
+            SELECT 
+                a.*,
+                COUNT(s.id) as submissions_count
+            FROM assignments a
+            LEFT JOIN assignment_submissions s ON a.id = s.assignment_id
+            WHERE a.teacher_id = %s 
+            AND a.subject_name = %s
+            GROUP BY a.id
+            ORDER BY a.due_date DESC
+        """
+        
+        cursor.execute(query, (teacher['id'], subject_name))
+        assignments = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "assignments": assignments,
+            "total_assignments": len(assignments)
+        }
+        
+    except Exception as e:
+        print(f"Error in get_assignments_by_subject: {str(e)}")
+        return {
+            "error": f"Error fetching assignments: {str(e)}",
+            "success": False
+        }
+
+# Endpoint for student to view their graded submission
+@app.get("/student/{student_userId}/assignment_submission/{submission_id}")
+def get_student_submission_details(student_userId: str, submission_id: int):
+    """Get detailed submission info for a student"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get submission with assignment and teacher info
+        query = """
+            SELECT 
+                s.*,
+                a.title as assignment_title,
+                a.description as assignment_description,
+                a.total_marks as assignment_total_marks,
+                a.due_date as assignment_due_date,
+                t.fullName as teacher_name,
+                t.userId as teacher_userId,
+                u.fullName as student_name
+            FROM assignment_submissions s
+            JOIN assignments a ON s.assignment_id = a.id
+            JOIN users u ON s.student_id = u.id
+            JOIN users t ON a.teacher_id = t.id
+            WHERE s.id = %s AND u.userId = %s
+        """
+        
+        cursor.execute(query, (submission_id, student_userId))
+        submission = cursor.fetchone()
+        
+        if not submission:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Submission not found or not authorized",
+                "success": False
+            }
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "submission": submission
+        }
+        
+    except Exception as e:
+        print(f"Error in get_student_submission_details: {str(e)}")
+        return {"error": str(e), "success": False}

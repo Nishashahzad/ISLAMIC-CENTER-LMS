@@ -14,7 +14,6 @@ import Settings from "./components/Settings";
 import StudentNotifications from "./components/StudentNotifications";
 import StudentMaterials from "./components/StudentMaterials";
 import StudentLectures from "./components/StudentLectures";
-import StudentQuizzes from "./components/StudentQuizzes";
 import StudentAssignments from "./components/StudentAssignments";
 import StudentLayout from "./components/StudentLayout";
 import StudentDashboard from "./components/StudentDashboard";
@@ -26,9 +25,23 @@ import TeacherCourses from "./components/TeacherCourses";
 import TeacherProfile from "./components/TeacherProfile";
 import QuizMaker from './components/QuizMaker';
 
+// Import new quiz components
+import StudentQuizzes from "./components/StudentQuizDashboard";
+import StudentTakeQuiz from "./components/TakeQuiz";
+import StudentQuizResult from "./components/QuizResult";
+
+// Import assignment submission components
+import StudentAssignmentSubmission from "./components/StudentAssignmentSubmission";
+import StudentSubmissionView from "./components/StudentSubmissionView";
+
+// Import the new Assignment Submissions page
+import AssignmentSubmissionsPage from "./components/AssignmentSubmissionsPage";
+// Import File Viewer Page
+import FileViewerPage from "./components/FileViewerPage";
+
 function App() {
   return (
-   <Router>
+    <Router>
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<HomePage />} />
@@ -50,12 +63,22 @@ function App() {
         <Route path="/student-dashboard/:userId" element={<StudentLayout />}>
           <Route index element={<StudentDashboard />} />
           <Route path="courses" element={<StudentCourses />} />
-          <Route path="profile" element={<StudentProfile />} />
-          <Route path="notifications" element={<StudentNotifications />} />
-          <Route path="materials" element={<StudentMaterials />} />
-          <Route path="lectures" element={<StudentLectures />} />
+          
+          {/* Quiz routes */}
           <Route path="quizzes" element={<StudentQuizzes />} />
+          <Route path="quizzes/take/:quizId" element={<StudentTakeQuiz />} />
+          <Route path="quizzes/result/:attemptId" element={<StudentQuizResult />} />
+          
+          {/* Assignment routes */}
           <Route path="assignments" element={<StudentAssignments />} />
+          <Route path="assignments/submit/:assignmentId" element={<StudentAssignmentSubmission />} />
+          <Route path="assignments/submission/:submissionId" element={<StudentSubmissionView />} />
+          
+          {/* Other routes */}
+          <Route path="lectures" element={<StudentLectures />} />
+          <Route path="materials" element={<StudentMaterials />} />
+          <Route path="notifications" element={<StudentNotifications />} />
+          <Route path="profile" element={<StudentProfile />} />
         </Route>
 
         {/* Teacher Routes */}
@@ -63,11 +86,19 @@ function App() {
           <Route index element={<TeacherDashboard />} />
           <Route path="courses" element={<TeacherCourses />} />
           <Route path="profile" element={<TeacherProfile />} />
-          {/* REMOVE QuizMaker from here */}
+          
+          {/* NEW: Teacher assignment submissions route */}
+          <Route path="assignments/:assignmentId/submissions" element={<AssignmentSubmissionsPage />} />
         </Route>
 
-        {/* ✅ QuizMaker Route - MUST BE AT ROOT LEVEL for window.open to work */}
+        {/* ✅ QuizMaker Route */}
         <Route path="/quiz-maker" element={<QuizMaker />} />
+        
+        {/* ✅ Direct route for assignment submissions (standalone) */}
+        <Route path="/teacher/assignment-submissions/:assignmentId" element={<AssignmentSubmissionsPage />} />
+        
+        {/* ✅ File Viewer Route for teachers to view submission files */}
+        <Route path="/teacher/file-viewer/:submissionId" element={<FileViewerPage />} />
       </Routes>
     </Router>
   );

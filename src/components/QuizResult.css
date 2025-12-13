@@ -1,0 +1,356 @@
+/* QuizResult.css */
+.student-quiz-result-container {
+  padding: 20px;
+  max-width: 1000px;
+  margin: 0 auto;
+  background: #f8f9fa;
+  min-height: 100vh;
+}
+
+.result-navigation {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  background: white;
+  padding: 15px 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.result-navigation h1 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.back-to-quizzes-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.back-to-quizzes-button:hover {
+  background: #5a6268;
+}
+
+/* Language Selector */
+.language-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-label {
+  font-size: 14px;
+  color: #666;
+}
+
+.language-btn {
+  background: #e9ecef;
+  border: 1px solid #ced4da;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.3s;
+}
+
+.language-btn:hover {
+  background: #dee2e6;
+}
+
+.language-btn.active {
+  background: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+/* RTL Text Support */
+.rtl-text {
+  direction: rtl;
+  text-align: right;
+  font-family: 'Arial', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* For Arabic specifically */
+.rtl-text[lang="ar"] {
+  font-family: 'Arial', 'Times New Roman', serif;
+  font-size: 18px;
+}
+
+/* For Urdu specifically */
+.rtl-text[lang="ur"] {
+  font-family: 'Jameel Noori Nastaleeq', 'Noto Nastaliq Urdu', 'Segoe UI', serif;
+  font-size: 18px;
+}
+
+.result-overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.quiz-info-card, .score-display-card {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.quiz-info-card h2 {
+  margin-top: 0;
+  color: #2c3e50;
+}
+
+.quiz-detail {
+  margin: 8px 0;
+  color: #555;
+  font-size: 14px;
+}
+
+.score-display-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.score-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 15px;
+  border: 5px solid;
+}
+
+.score-circle.grade-excellent {
+  border-color: #28a745;
+  background: #f0fff4;
+}
+
+.score-circle.grade-good {
+  border-color: #17a2b8;
+  background: #f0f9ff;
+}
+
+.score-circle.grade-average {
+  border-color: #ffc107;
+  background: #fffcf0;
+}
+
+.score-circle.grade-pass {
+  border-color: #fd7e14;
+  background: #fff5f0;
+}
+
+.score-circle.grade-fail {
+  border-color: #dc3545;
+  background: #fff0f0;
+}
+
+.score-percentage {
+  font-size: 28px;
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.score-label {
+  font-size: 14px;
+  color: #666;
+  margin-top: 5px;
+}
+
+.score-details {
+  text-align: center;
+}
+
+.score-details p {
+  margin: 5px 0;
+  font-size: 14px;
+}
+
+.detailed-analysis {
+  background: white;
+  padding: 25px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  margin-bottom: 30px;
+}
+
+.detailed-analysis h2 {
+  margin-top: 0;
+  color: #2c3e50;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+.answer-analysis {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  transition: all 0.3s;
+}
+
+.answer-analysis.answer-correct {
+  background: #f0fff4;
+  border-left: 4px solid #28a745;
+}
+
+.answer-analysis.answer-incorrect {
+  background: #fff0f0;
+  border-left: 4px solid #dc3545;
+}
+
+.analysis-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.analysis-header h3 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.question-weight {
+  color: #ff9800;
+  font-weight: bold;
+  margin-left: 10px;
+}
+
+.answer-status {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.status-correct {
+  background: #28a745;
+  color: white;
+}
+
+.status-incorrect {
+  background: #dc3545;
+  color: white;
+}
+
+.analysis-question, .analysis-answer {
+  margin-bottom: 15px;
+}
+
+.analysis-question p, .analysis-answer p {
+  margin: 0 0 8px 0;
+  font-weight: bold;
+  color: #333;
+}
+
+.question-text, .answer-text, .correct-answer-text {
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 5px;
+  margin-top: 5px;
+  min-height: 40px;
+}
+
+.correct-answer-reveal {
+  margin-top: 15px;
+  padding: 10px;
+  background: #e8f4fd;
+  border-radius: 5px;
+  border-left: 3px solid #17a2b8;
+}
+
+.analysis-score {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px dashed #ccc;
+  font-weight: bold;
+  color: #2c3e50;
+}
+
+.result-actions-panel {
+  display: flex;
+  justify-content: space-between;
+  padding: 20px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.back-to-dashboard-button {
+  background: #17a2b8;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.back-to-dashboard-button:hover {
+  background: #138496;
+}
+
+.print-result-button {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.print-result-button:hover {
+  background: #5a6268;
+}
+
+.student-quiz-result-loading,
+.student-quiz-result-error {
+  text-align: center;
+  padding: 50px;
+  font-size: 18px;
+  color: #666;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .result-navigation {
+    flex-direction: column;
+    gap: 15px;
+    align-items: stretch;
+  }
+  
+  .language-selector {
+    justify-content: center;
+  }
+  
+  .result-overview {
+    grid-template-columns: 1fr;
+  }
+  
+  .result-actions-panel {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .back-to-quizzes-button,
+  .back-to-dashboard-button,
+  .print-result-button {
+    width: 100%;
+    text-align: center;
+  }
+}

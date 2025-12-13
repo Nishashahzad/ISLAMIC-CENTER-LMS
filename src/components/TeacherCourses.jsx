@@ -19,6 +19,14 @@ const TeacherCourses = () => {
   const [quizzes, setQuizzes] = useState([]);
   const [materials, setMaterials] = useState([]);
 
+  // Add state for assignment submissions
+  const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
+  const [selectedAssignment, setSelectedAssignment] = useState(null);
+  const [gradingForm, setGradingForm] = useState({
+    marks_obtained: '',
+    feedback: ''
+  });
+
   // Form states
   const [lectureForm, setLectureForm] = useState({ title: "", description: "", file: null });
   const [assignmentForm, setAssignmentForm] = useState({
@@ -26,6 +34,7 @@ const TeacherCourses = () => {
     description: "",
     startDate: "",
     dueDate: "",
+    totalMarks: "100",
     file: null
   });
   const [notificationForm, setNotificationForm] = useState({ title: "", message: "", priority: "medium" });
@@ -191,6 +200,70 @@ const TeacherCourses = () => {
     }
   };
 
+ const viewAssignmentSubmissions = (assignment) => {
+  if (!teacherData || !teacherData.userId) {
+    alert("Teacher data not available");
+    return;
+  }
+  
+  // Option 1: Navigate within teacher dashboard
+  navigate(`/teacher-dashboard/${teacherData.userId}/assignments/${assignment.id}/submissions`, {
+    state: {
+      teacherData,
+      assignmentData: assignment,
+      subject: selectedSubject
+    }
+  });
+  
+  // OR Option 2: Use standalone route (if you added it to App.jsx)
+  // navigate(`/teacher/assignment-submissions/${assignment.id}`, {
+  //   state: {
+  //     teacherData,
+  //     assignmentData: assignment,
+  //     subject: selectedSubject
+  //   }
+  // });
+};
+
+  // Add function to grade submission
+  const gradeSubmission = async (submissionId) => {
+    if (!gradingForm.marks_obtained) {
+      alert('Please enter marks obtained');
+      return;
+    }
+    
+    try {
+      const teacherId = teacherData?.userId || teacherData?.userid || teacherData?.id;
+      const response = await fetch(`http://localhost:8000/assignments/submissions/${submissionId}/grade?teacher_userId=${teacherId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          marks_obtained: parseFloat(gradingForm.marks_obtained),
+          feedback: gradingForm.feedback,
+          graded_by: teacherId
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        alert('Grade submitted successfully!');
+        // Refresh submissions
+        if (selectedAssignment) {
+          viewAssignmentSubmissions(selectedAssignment);
+        }
+        setGradingForm({ marks_obtained: '', feedback: '' });
+      } else {
+        alert('Error submitting grade: ' + data.detail);
+      }
+    } catch (error) {
+      console.error('Error grading submission:', error);
+      alert('Error submitting grade');
+    }
+  };
+
   // Handle file uploads
   const handleFileUpload = (e, formType) => {
     const file = e.target.files[0];
@@ -255,6 +328,7 @@ const TeacherCourses = () => {
     formData.append('description', assignmentForm.description);
     formData.append('start_date', assignmentForm.startDate);
     formData.append('due_date', assignmentForm.dueDate);
+    formData.append('total_marks', assignmentForm.totalMarks);
     if (assignmentForm.file) {
       formData.append('file', assignmentForm.file);
     }
@@ -269,7 +343,14 @@ const TeacherCourses = () => {
 
       if (result.success) {
         alert("Assignment created successfully!");
-        setAssignmentForm({ title: "", description: "", startDate: "", dueDate: "", file: null });
+        setAssignmentForm({ 
+          title: "", 
+          description: "", 
+          startDate: "", 
+          dueDate: "",
+          totalMarks: "100", 
+          file: null 
+        });
         fetchSubjectData();
       } else {
         alert("Error creating assignment: " + result.detail);
@@ -638,6 +719,14 @@ const TeacherCourses = () => {
                     <div className="form-row">
                       <input type="date" placeholder="Start Date" value={assignmentForm.startDate} onChange={(e) => setAssignmentForm({ ...assignmentForm, startDate: e.target.value })} required />
                       <input type="date" placeholder="Due Date" value={assignmentForm.dueDate} onChange={(e) => setAssignmentForm({ ...assignmentForm, dueDate: e.target.value })} required />
+                      <input 
+                        type="number" 
+                        placeholder="Total Marks" 
+                        value={assignmentForm.totalMarks} 
+                        onChange={(e) => setAssignmentForm({ ...assignmentForm, totalMarks: e.target.value })} 
+                        min="1"
+                        required 
+                      />
                     </div>
                     <input type="file" onChange={(e) => handleFileUpload(e, 'assignment')} accept=".pdf,.doc,.docx" />
                     <button type="submit" className="btn-primary">Create Assignment</button>
@@ -655,11 +744,118 @@ const TeacherCourses = () => {
                           <h4>{assignment.title}</h4>
                           <p>{assignment.description}</p>
                           <small>Start: {formatDate(assignment.start_date)} • Due: {formatDate(assignment.due_date)}</small>
-                          <small>Submissions: {assignment.submissions}/{assignment.total_students}</small>
+                          <small>Total Marks: {assignment.total_marks}</small>
+                          <small>Submissions: {assignment.submissions || 0}</small>
                           {assignment.file_name && <small>File: {assignment.file_name}</small>}
                         </div>
                         <div className="content-actions">
-                          <button className="btn-view">👁️ View Submissions</button>
+                          <button 
+                            className="btn-view" 
+                            onClick={() => viewAssignmentSubmissions(assignment)}
+                          >
+                            👁️ View Submissions ({assignment.submissions || 0})
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Add new tab for viewing submissions */}
+            {activeTab === 'assignment_submissions' && selectedAssignment && (
+              <div className="tab-panel">
+                <div className="submissions-header">
+                  <button onClick={() => setActiveTab('assignments')} className="back-button">
+                    ← Back to Assignments
+                  </button>
+                  <h3>Submissions for: {selectedAssignment.title}</h3>
+                  <p>Due: {formatDate(selectedAssignment.due_date)} • Total Marks: {selectedAssignment.total_marks}</p>
+                </div>
+
+                <div className="submissions-list">
+                  {assignmentSubmissions.length === 0 ? (
+                    <div className="no-submissions">
+                      <p>No submissions yet.</p>
+                    </div>
+                  ) : (
+                    assignmentSubmissions.map(submission => (
+                      <div key={submission.id} className="submission-item">
+                        <div className="submission-header">
+                          <div className="student-info">
+                            <h4>{submission.student_name}</h4>
+                            <p>{submission.student_email}</p>
+                            <small>Submitted: {formatDate(submission.submission_date)}</small>
+                            <span className={`status-badge ${submission.status}`}>
+                              {submission.status === 'graded' ? '✅ Graded' : 
+                              submission.status === 'late' ? '⏰ Late' : '📤 Submitted'}
+                            </span>
+                          </div>
+                          
+                          {submission.marks_obtained !== null ? (
+                            <div className="grade-display">
+                              <span className="grade-score">
+                                {submission.marks_obtained}/{selectedAssignment.total_marks}
+                              </span>
+                              <small>Graded by: {submission.graded_by_name}</small>
+                            </div>
+                          ) : (
+                            <div className="grade-actions">
+                              <input
+                                type="number"
+                                placeholder="Marks"
+                                value={gradingForm.marks_obtained}
+                                onChange={(e) => setGradingForm({...gradingForm, marks_obtained: e.target.value})}
+                                max={selectedAssignment.total_marks}
+                                min="0"
+                                step="0.5"
+                                className="marks-input"
+                              />
+                              <textarea
+                                placeholder="Feedback (optional)"
+                                value={gradingForm.feedback}
+                                onChange={(e) => setGradingForm({...gradingForm, feedback: e.target.value})}
+                                className="feedback-input"
+                              />
+                              <button 
+                                onClick={() => gradeSubmission(submission.id)}
+                                className="btn-grade"
+                              >
+                                ✅ Grade
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="submission-content">
+                          {submission.submission_text && (
+                            <div className="submission-text">
+                              <strong>Answer:</strong>
+                              <p>{submission.submission_text}</p>
+                            </div>
+                          )}
+                          
+                          {submission.file_name && (
+                            <div className="submission-file">
+                              <strong>File:</strong>
+                              <a 
+                                href={`http://localhost:8000/assignments/submissions/${submission.id}/download?teacher_userId=${teacherData?.userId || teacherData?.userid || teacherData?.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="file-link"
+                              >
+                                📎 {submission.file_name}
+                              </a>
+                            </div>
+                          )}
+                          
+                          {submission.feedback && (
+                            <div className="teacher-feedback">
+                              <strong>Your Feedback:</strong>
+                              <p>{submission.feedback}</p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))
