@@ -841,6 +841,183 @@ def delete_notification(notification_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting notification: {str(e)}")
 
+# Add this endpoint for students to get notifications
+@app.get("/student/{student_userId}/notifications")
+def get_student_notifications(student_userId: str, subject_name: str = None):
+    """Get notifications for a student, optionally filtered by subject"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"DEBUG: Getting notifications for student {student_userId}, subject: {subject_name}")
+        
+        # Get student's current year
+        cursor.execute("""
+            SELECT id, current_year 
+            FROM users 
+            WHERE userId = %s AND role = 'student'
+        """, (student_userId,))
+        
+        student = cursor.fetchone()
+        
+        if not student:
+            cursor.close()
+            db.close()
+            return {
+                "success": False,
+                "error": "Student not found"
+            }
+        
+        student_id = student['id']
+        current_year = student['current_year']
+        
+        # Build query based on whether subject_name is provided
+        if subject_name:
+            # Get notifications for specific subject
+            query = """
+                SELECT n.*, u.fullName as teacher_name, u.userId as teacher_userId
+                FROM notifications n
+                JOIN users u ON n.teacher_id = u.id
+                WHERE n.subject_name = %s
+                ORDER BY n.created_date DESC
+            """
+            cursor.execute(query, (subject_name,))
+        else:
+            # Get notifications for all subjects in student's year
+            # First, get all subjects for student's year
+            cursor.execute("""
+                SELECT subject_name 
+                FROM subjects 
+                WHERE year_id IN (
+                    SELECT id FROM years WHERE name LIKE %s
+                )
+            """, (f"%{current_year}%",))
+            
+            subjects = cursor.fetchall()
+            
+            if not subjects:
+                cursor.close()
+                db.close()
+                return {
+                    "success": True,
+                    "notifications": [],
+                    "message": "No subjects found for your year"
+                }
+            
+            subject_names = [subject['subject_name'] for subject in subjects]
+            
+            # Get notifications for all these subjects
+            placeholders = ', '.join(['%s'] * len(subject_names))
+            query = f"""
+                SELECT n.*, u.fullName as teacher_name, u.userId as teacher_userId
+                FROM notifications n
+                JOIN users u ON n.teacher_id = u.id
+                WHERE n.subject_name IN ({placeholders})
+                ORDER BY n.created_date DESC
+            """
+            cursor.execute(query, subject_names)
+        
+        notifications = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "notifications": notifications,
+            "total_notifications": len(notifications),
+            "student_year": current_year
+        }
+        
+    except Exception as e:
+        print(f"Error in get_student_notifications: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "error": f"Error fetching notifications: {str(e)}"
+        }
+
+# Also add endpoint to get notifications count for stats
+@app.get("/student/{student_userId}/notifications/count")
+def get_student_notifications_count(student_userId: str):
+    """Get count of notifications for a student"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get student's current year
+        cursor.execute("""
+            SELECT id, current_year 
+            FROM users 
+            WHERE userId = %s AND role = 'student'
+        """, (student_userId,))
+        
+        student = cursor.fetchone()
+        
+        if not student:
+            cursor.close()
+            db.close()
+            return {
+                "success": False,
+                "error": "Student not found"
+            }
+        
+        current_year = student['current_year']
+        
+        # Get all subjects for student's year
+        cursor.execute("""
+            SELECT subject_name 
+            FROM subjects 
+            WHERE year_id IN (
+                SELECT id FROM years WHERE name LIKE %s
+            )
+        """, (f"%{current_year}%",))
+        
+        subjects = cursor.fetchall()
+        
+        if not subjects:
+            cursor.close()
+            db.close()
+            return {
+                "success": True,
+                "total_notifications": 0,
+                "subject_counts": {}
+            }
+        
+        subject_names = [subject['subject_name'] for subject in subjects]
+        
+        # Get count of notifications for each subject
+        notifications_by_subject = {}
+        total_count = 0
+        
+        for subject in subject_names:
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM notifications 
+                WHERE subject_name = %s
+            """, (subject,))
+            
+            count_result = cursor.fetchone()
+            notifications_by_subject[subject] = count_result['count']
+            total_count += count_result['count']
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "total_notifications": total_count,
+            "subject_counts": notifications_by_subject
+        }
+        
+    except Exception as e:
+        print(f"Error in get_student_notifications_count: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Error counting notifications: {str(e)}"
+        }
+
 # ------------------- QUIZZES ENDPOINTS -------------------
 
 @app.post("/quizzes")
@@ -5092,3 +5269,1322 @@ def get_student_submission_details(student_userId: str, submission_id: int):
     except Exception as e:
         print(f"Error in get_student_submission_details: {str(e)}")
         return {"error": str(e), "success": False}
+    
+
+# Add these imports if not already there
+from datetime import datetime, timezone
+
+# Endpoint for auto-grading overdue assignments
+@app.post("/assignments/auto-grade-overdue")
+def auto_grade_overdue_assignment(request_data: dict):
+    """Auto-grade an overdue assignment with 0 marks (NO late submissions allowed)"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        student_userId = request_data.get('student_userId')
+        assignment_id = request_data.get('assignment_id')
+        teacher_userId = request_data.get('teacher_userId')
+        subject_name = request_data.get('subject_name')
+        
+        print(f"DEBUG: Auto-grading assignment {assignment_id} for student {student_userId}")
+        
+        # Get student ID
+        cursor.execute(
+            "SELECT id FROM users WHERE userId = %s AND role = 'student'",
+            (student_userId,)
+        )
+        student = cursor.fetchone()
+        
+        if not student:
+            cursor.close()
+            db.close()
+            return {"success": False, "error": "Student not found"}
+        
+        student_id = student['id']
+        
+        # Get teacher ID
+        cursor.execute(
+            "SELECT id FROM users WHERE userId = %s AND role = 'teacher'",
+            (teacher_userId,)
+        )
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            cursor.close()
+            db.close()
+            return {"success": False, "error": "Teacher not found"}
+        
+        teacher_id = teacher['id']
+        
+        # Get assignment details
+        cursor.execute("""
+            SELECT a.*, u.userId as teacher_userId
+            FROM assignments a
+            JOIN users u ON a.teacher_id = u.id
+            WHERE a.id = %s 
+            AND a.teacher_id = %s 
+            AND a.subject_name = %s
+        """, (assignment_id, teacher_id, subject_name))
+        
+        assignment = cursor.fetchone()
+        
+        if not assignment:
+            cursor.close()
+            db.close()
+            return {"success": False, "error": "Assignment not found"}
+        
+        # Check if assignment is overdue
+        current_time = datetime.now(timezone.utc)
+        due_date = assignment['due_date']
+        
+        if due_date.tzinfo is None:
+            due_date = due_date.replace(tzinfo=timezone.utc)
+        
+        is_overdue = current_time > due_date
+        
+        if not is_overdue:
+            cursor.close()
+            db.close()
+            return {"success": False, "error": "Assignment is not yet overdue"}
+        
+        # Check if already has a submission
+        cursor.execute("""
+            SELECT id, auto_graded, marks_obtained 
+            FROM assignment_submissions 
+            WHERE assignment_id = %s 
+            AND student_id = %s
+        """, (assignment_id, student_id))
+        
+        existing_submission = cursor.fetchone()
+        
+        if existing_submission:
+            cursor.close()
+            db.close()
+            return {
+                "success": False, 
+                "error": "Already has a submission", 
+                "submission": existing_submission
+            }
+        
+        # Auto-grade with 0 marks
+        total_marks = assignment.get('total_marks', 100)
+        
+        # Insert auto-graded submission
+        insert_query = """
+            INSERT INTO assignment_submissions 
+            (assignment_id, student_id, submission_text, submission_date,
+             marks_obtained, feedback, graded_by, graded_date, status,
+             auto_graded)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_query, (
+            assignment_id,
+            student_id,
+            'Auto-graded: No submission received before deadline',
+            current_time,
+            0.0,
+            f'Automatically graded with 0 marks. Assignment was due on {due_date.strftime("%Y-%m-%d %H:%M")}. Late submissions are not accepted.',
+            teacher_id,
+            current_time,
+            'graded',
+            True
+        ))
+        
+        submission_id = cursor.lastrowid
+        
+        # Update assignment submissions count
+        cursor.execute("""
+            UPDATE assignments 
+            SET submissions = (
+                SELECT COUNT(*) 
+                FROM assignment_submissions 
+                WHERE assignment_id = %s
+            )
+            WHERE id = %s
+        """, (assignment_id, assignment_id))
+        
+        db.commit()
+        
+        # Get the created submission for response
+        cursor.execute("""
+            SELECT s.*, u.fullName as student_name, u.email as student_email,
+                   a.title as assignment_title
+            FROM assignment_submissions s
+            JOIN users u ON s.student_id = u.id
+            JOIN assignments a ON s.assignment_id = a.id
+            WHERE s.id = %s
+        """, (submission_id,))
+        
+        new_submission = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        print(f"DEBUG: Successfully auto-graded assignment {assignment_id}")
+        
+        return {
+            "success": True,
+            "message": "Assignment auto-graded with 0 marks",
+            "submission_id": submission_id,
+            "submission": new_submission,
+            "marks_obtained": 0,
+            "total_marks": total_marks
+        }
+        
+    except Exception as e:
+        print(f"Error in auto_grade_overdue_assignment: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+# Update the submit_assignment endpoint to reject late submissions
+@app.post("/student/submit_assignment")
+def submit_assignment(submission: AssignmentSubmissionCreate):
+    """Submit an assignment - REJECTS late submissions"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"DEBUG: Submitting assignment for student {submission.student_userId}")
+        
+        # Get student ID
+        cursor.execute(
+            "SELECT id FROM users WHERE userId = %s AND role = 'student'",
+            (submission.student_userId,)
+        )
+        student = cursor.fetchone()
+        
+        if not student:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Student not found",
+                "success": False
+            }
+        
+        student_id = student['id']
+        
+        # Get assignment details including due date
+        cursor.execute("""
+            SELECT a.*, u.userId as teacher_userId, u.fullName as teacher_name
+            FROM assignments a
+            JOIN users u ON a.teacher_id = u.id
+            WHERE a.id = %s
+        """, (submission.assignment_id,))
+        
+        assignment = cursor.fetchone()
+        
+        if not assignment:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Assignment not found",
+                "success": False
+            }
+        
+        # Check if assignment is overdue
+        current_time = datetime.now(timezone.utc)
+        due_date = assignment['due_date']
+        
+        if due_date.tzinfo is None:
+            due_date = due_date.replace(tzinfo=timezone.utc)
+        
+        is_overdue = current_time > due_date
+        
+        # REJECT late submissions
+        if is_overdue:
+            cursor.close()
+            db.close()
+            return {
+                "error": "Late submissions are not accepted. Assignment deadline has passed.",
+                "success": False,
+                "due_date": due_date.isoformat(),
+                "current_time": current_time.isoformat()
+            }
+        
+        # Check if already submitted
+        cursor.execute("""
+            SELECT id, auto_graded 
+            FROM assignment_submissions 
+            WHERE assignment_id = %s 
+            AND student_id = %s
+        """, (submission.assignment_id, student_id))
+        
+        existing_submission = cursor.fetchone()
+        
+        if existing_submission:
+            # If it's auto-graded (0 marks), allow resubmission
+            if existing_submission['auto_graded']:
+                # Delete auto-graded submission to allow fresh submission
+                cursor.execute(
+                    "DELETE FROM assignment_submissions WHERE id = %s",
+                    (existing_submission['id'],)
+                )
+            else:
+                cursor.close()
+                db.close()
+                return {
+                    "error": "Assignment already submitted",
+                    "success": False,
+                    "submission_id": existing_submission['id']
+                }
+        
+        # Insert submission (not overdue, so status is 'submitted')
+        insert_query = """
+            INSERT INTO assignment_submissions 
+            (assignment_id, student_id, submission_text, file_name, file_path, 
+             submission_date, status, auto_graded)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        
+        cursor.execute(insert_query, (
+            submission.assignment_id,
+            student_id,
+            submission.submission_text,
+            submission.file_name,
+            submission.file_path,
+            current_time,
+            'submitted',
+            False  # Not auto-graded
+        ))
+        
+        submission_id = cursor.lastrowid
+        
+        # Update assignment submissions count
+        cursor.execute("""
+            UPDATE assignments 
+            SET submissions = (
+                SELECT COUNT(*) 
+                FROM assignment_submissions 
+                WHERE assignment_id = %s
+            )
+            WHERE id = %s
+        """, (submission.assignment_id, submission.assignment_id))
+        
+        db.commit()
+        
+        # Get the created submission
+        cursor.execute("""
+            SELECT s.*, u.fullName as student_name, u.email as student_email,
+                   a.title as assignment_title, a.subject_name,
+                   t.fullName as teacher_name
+            FROM assignment_submissions s
+            JOIN users u ON s.student_id = u.id
+            JOIN assignments a ON s.assignment_id = a.id
+            JOIN users t ON a.teacher_id = t.id
+            WHERE s.id = %s
+        """, (submission_id,))
+        
+        new_submission = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "message": "Assignment submitted successfully",
+            "submission_id": submission_id,
+            "submission": new_submission,
+            "due_date": due_date.isoformat(),
+            "submitted_at": current_time.isoformat()
+        }
+        
+    except Exception as e:
+        print(f"Error in submit_assignment: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "error": f"Error submitting assignment: {str(e)}",
+            "success": False
+        }
+    
+# Add this endpoint for auto-grading
+@app.post("/auto-grade/check-and-grade")
+def check_and_auto_grade(request_data: dict):
+    """Check if assignment needs auto-grading and do it"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        student_userId = request_data.get('student_userId')
+        assignment_id = request_data.get('assignment_id')
+        teacher_userId = request_data.get('teacher_userId')
+        subject_name = request_data.get('subject_name')
+        
+        # Get student ID
+        cursor.execute(
+            "SELECT id FROM users WHERE userId = %s AND role = 'student'",
+            (student_userId,)
+        )
+        student = cursor.fetchone()
+        
+        if not student:
+            return {"success": False, "error": "Student not found"}
+        
+        student_id = student['id']
+        
+        # Get teacher ID
+        cursor.execute(
+            "SELECT id FROM users WHERE userId = %s AND role = 'teacher'",
+            (teacher_userId,)
+        )
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            return {"success": False, "error": "Teacher not found"}
+        
+        teacher_id = teacher['id']
+        
+        # Check if already submitted
+        cursor.execute("""
+            SELECT id, marks_obtained 
+            FROM assignment_submissions 
+            WHERE assignment_id = %s 
+            AND student_id = %s
+        """, (assignment_id, student_id))
+        
+        existing = cursor.fetchone()
+        
+        if existing:
+            return {
+                "success": True, 
+                "auto_graded": False, 
+                "message": "Already submitted",
+                "submission": existing
+            }
+        
+        # Check if assignment is overdue
+        cursor.execute("""
+            SELECT a.*, 
+                   CASE WHEN a.due_date < NOW() THEN 1 ELSE 0 END as is_overdue
+            FROM assignments a
+            WHERE a.id = %s 
+            AND a.teacher_id = %s 
+            AND a.subject_name = %s
+        """, (assignment_id, teacher_id, subject_name))
+        
+        assignment = cursor.fetchone()
+        
+        if not assignment:
+            return {"success": False, "error": "Assignment not found"}
+        
+        # If overdue, auto-grade with 0 marks
+        if assignment['is_overdue'] == 1:
+            try:
+                # First, check if auto_graded column exists
+                cursor.execute("SHOW COLUMNS FROM assignment_submissions LIKE 'auto_graded'")
+                has_auto_graded = cursor.fetchone()
+                
+                # Insert auto-graded submission
+                if has_auto_graded:
+                    insert_query = """
+                        INSERT INTO assignment_submissions 
+                        (assignment_id, student_id, submission_text, submission_date,
+                         marks_obtained, feedback, graded_by, graded_date, status,
+                         auto_graded)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(insert_query, (
+                        assignment_id,
+                        student_id,
+                        'Auto-graded: No submission before deadline',
+                        datetime.now(timezone.utc),
+                        0.0,
+                        'Automatically graded with 0 marks. Late submissions not accepted.',
+                        teacher_id,
+                        datetime.now(timezone.utc),
+                        'graded',
+                        True
+                    ))
+                else:
+                    # Fallback without auto_graded column
+                    insert_query = """
+                        INSERT INTO assignment_submissions 
+                        (assignment_id, student_id, submission_text, submission_date,
+                         marks_obtained, feedback, graded_by, graded_date, status)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    cursor.execute(insert_query, (
+                        assignment_id,
+                        student_id,
+                        'Auto-graded: No submission before deadline',
+                        datetime.now(timezone.utc),
+                        0.0,
+                        'Automatically graded with 0 marks. Late submissions not accepted.',
+                        teacher_id,
+                        datetime.now(timezone.utc),
+                        'graded'
+                    ))
+                
+                submission_id = cursor.lastrowid
+                
+                # Update submissions count
+                cursor.execute("""
+                    UPDATE assignments 
+                    SET submissions = (
+                        SELECT COUNT(*) 
+                        FROM assignment_submissions 
+                        WHERE assignment_id = %s
+                    )
+                    WHERE id = %s
+                """, (assignment_id, assignment_id))
+                
+                db.commit()
+                
+                return {
+                    "success": True,
+                    "auto_graded": True,
+                    "message": "Auto-graded with 0 marks",
+                    "submission_id": submission_id
+                }
+                
+            except Exception as e:
+                db.rollback()
+                return {"success": False, "error": f"Error auto-grading: {str(e)}"}
+        else:
+            return {
+                "success": True, 
+                "auto_graded": False, 
+                "message": "Not overdue yet"
+            }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        cursor.close()
+        db.close()
+
+# Add this endpoint to get student by userId
+@app.get("/users")
+def get_user_by_userId(userId: str = None):
+    """Get user by userId (works for both students and teachers)"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"🔍 DEBUG: Looking for user with userId: {userId}")
+        
+        if userId:
+            cursor.execute("SELECT * FROM users WHERE userId = %s", (userId,))
+        else:
+            cursor.execute("SELECT * FROM users WHERE role = 'student'")
+        
+        users = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        if not users:
+            return {"success": False, "error": "User not found"}
+        
+        # Convert date fields to string for JSON serialization
+        for user in users:
+            if user.get('dob'):
+                user['dob'] = str(user['dob'])
+            if user.get('created_at'):
+                user['created_at'] = str(user['created_at'])
+        
+        return {"success": True, "users": users}
+        
+    except Exception as e:
+        print(f"Error in get_user_by_userId: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+# REPLACE the entire /student/{student_userId}/dashboard/stats endpoint with this FIXED version:
+
+@app.get("/student/{student_userId}/dashboard/stats")
+def get_student_dashboard_stats(student_userId: str):
+    """Get comprehensive dashboard statistics for a student - FIXED VERSION"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"🔍 DEBUG DASHBOARD: Getting stats for student: {student_userId}")
+        
+        # 1. Get student basic info
+        cursor.execute("""
+            SELECT id, userId, fullName, current_year, email, phone
+            FROM users 
+            WHERE userId = %s AND role = 'student'
+        """, (student_userId,))
+        
+        student = cursor.fetchone()
+        
+        if not student:
+            print(f"❌ Student not found: {student_userId}")
+            cursor.close()
+            db.close()
+            return {"success": False, "error": "Student not found"}
+        
+        student_id = student['id']
+        student_name = student['fullName']
+        student_year = student['current_year']
+        
+        print(f"✅ Found student: {student_name} (ID: {student_id}, Year: {student_year})")
+        
+        # 2. Get student's subjects based on their year (simplified)
+        student_subjects = []
+        if student_year:
+            if "first" in student_year.lower() or "1" in student_year:
+                if 1 in predefined_subjects:
+                    student_subjects = predefined_subjects[1]
+            elif "second" in student_year.lower() or "2" in student_year:
+                if 2 in predefined_subjects:
+                    student_subjects = predefined_subjects[2]
+            elif "third" in student_year.lower() or "3" in student_year:
+                if 3 in predefined_subjects:
+                    student_subjects = predefined_subjects[3]
+            elif "fourth" in student_year.lower() or "4" in student_year:
+                if 4 in predefined_subjects:
+                    student_subjects = predefined_subjects[4]
+            elif "fifth" in student_year.lower() or "5" in student_year:
+                if 5 in predefined_subjects:
+                    student_subjects = predefined_subjects[5]
+        
+        print(f"📚 Student subjects count: {len(student_subjects)}")
+        
+        # 3. Get assignments data - SIMPLIFIED
+        current_date = datetime.now().date()
+        
+        # Pending assignments (not submitted and not overdue)
+        cursor.execute("""
+            SELECT COUNT(DISTINCT a.id) as pending_count
+            FROM assignments a
+            WHERE a.due_date >= %s 
+            AND a.id NOT IN (
+                SELECT s.assignment_id 
+                FROM assignment_submissions s 
+                WHERE s.student_id = %s
+            )
+        """, (current_date, student_id))
+        
+        pending_result = cursor.fetchone()
+        pending_assignments = pending_result['pending_count'] if pending_result else 0
+        print(f"📝 Pending assignments: {pending_assignments}")
+        
+        # Total submitted assignments
+        cursor.execute("""
+            SELECT COUNT(DISTINCT assignment_id) as submitted_count
+            FROM assignment_submissions 
+            WHERE student_id = %s
+        """, (student_id,))
+        
+        submitted_result = cursor.fetchone()
+        submitted_assignments = submitted_result['submitted_count'] if submitted_result else 0
+        print(f"✅ Submitted assignments: {submitted_assignments}")
+        
+        # Graded assignments with scores
+        cursor.execute("""
+            SELECT COUNT(*) as graded_count, 
+                   COALESCE(AVG(marks_obtained), 0) as avg_score
+            FROM assignment_submissions 
+            WHERE student_id = %s 
+            AND marks_obtained IS NOT NULL
+        """, (student_id,))
+        
+        graded_result = cursor.fetchone()
+        graded_assignments = graded_result['graded_count'] if graded_result else 0
+        avg_assignment_score = float(graded_result['avg_score']) if graded_result and graded_result['avg_score'] else 0
+        print(f"📊 Graded assignments: {graded_assignments}, Avg score: {avg_assignment_score}")
+        
+        # 4. Get quizzes data - SIMPLIFIED
+        # Upcoming quizzes (not attempted and not expired)
+        cursor.execute("""
+            SELECT COUNT(DISTINCT q.id) as upcoming_count
+            FROM quizzes q
+            WHERE q.is_published = 1 
+            AND q.end_date >= %s 
+            AND q.id NOT IN (
+                SELECT sa.quiz_id 
+                FROM student_attempts sa 
+                WHERE sa.student_id = %s
+            )
+        """, (current_date, student_id))
+        
+        upcoming_result = cursor.fetchone()
+        upcoming_quizzes = upcoming_result['upcoming_count'] if upcoming_result else 0
+        print(f"📅 Upcoming quizzes: {upcoming_quizzes}")
+        
+        # Total available quizzes
+        cursor.execute("""
+            SELECT COUNT(DISTINCT q.id) as total_count
+            FROM quizzes q
+            WHERE q.is_published = 1 
+            AND q.end_date >= %s
+        """, (current_date,))
+        
+        total_result = cursor.fetchone()
+        total_quizzes = total_result['total_count'] if total_result else 0
+        print(f"📋 Total quizzes: {total_quizzes}")
+        
+        # Completed quizzes
+        cursor.execute("""
+            SELECT COUNT(DISTINCT quiz_id) as completed_count,
+                   COALESCE(AVG(total_score), 0) as avg_score
+            FROM student_attempts 
+            WHERE student_id = %s
+        """, (student_id,))
+        
+        completed_result = cursor.fetchone()
+        completed_quizzes = completed_result['completed_count'] if completed_result else 0
+        avg_quiz_score = float(completed_result['avg_score']) if completed_result and completed_result['avg_score'] else 0
+        print(f"🏆 Completed quizzes: {completed_quizzes}, Avg score: {avg_quiz_score}")
+        
+        # 5. Get recent activities
+        recent_activities = []
+        try:
+            cursor.execute("""
+                (SELECT 
+                    'assignment_submission' as activity_type,
+                    '📝 Submitted Assignment' as title,
+                    a.title as description,
+                    a.subject_name,
+                    s.submission_date as timestamp,
+                    s.marks_obtained as score,
+                    NULL as max_score
+                FROM assignment_submissions s
+                JOIN assignments a ON s.assignment_id = a.id
+                WHERE s.student_id = %s
+                ORDER BY s.submission_date DESC
+                LIMIT 2)
+                
+                UNION ALL
+                
+                (SELECT 
+                    'quiz_attempt' as activity_type,
+                    '📊 Attempted Quiz' as title,
+                    q.title as description,
+                    q.subject_name,
+                    sa.submitted_at as timestamp,
+                    sa.total_score as score,
+                    q.total_marks as max_score
+                FROM student_attempts sa
+                JOIN quizzes q ON sa.quiz_id = q.id
+                WHERE sa.student_id = %s
+                ORDER BY sa.submitted_at DESC
+                LIMIT 2)
+                
+                ORDER BY timestamp DESC
+                LIMIT 3
+            """, (student_id, student_id))
+            
+            recent_activities = cursor.fetchall()
+            print(f"📈 Recent activities: {len(recent_activities)}")
+        except Exception as e:
+            print(f"⚠️ Could not fetch recent activities: {e}")
+        
+        # 6. Calculate overall progress - SIMPLIFIED
+        overall_progress = 0
+        
+        # Count total assignments available for student's year
+        total_assignments_available = 0
+        if student_subjects:
+            subject_names = [subj["subject_name"] for subj in student_subjects]
+            placeholders = ', '.join(['%s'] * len(subject_names))
+            cursor.execute(f"""
+                SELECT COUNT(*) as total 
+                FROM assignments 
+                WHERE subject_name IN ({placeholders})
+                AND due_date >= %s
+            """, (*subject_names, current_date))
+            
+            total_result = cursor.fetchone()
+            total_assignments_available = total_result['total'] if total_result else 0
+        
+        # Calculate progress
+        assignment_progress = 0
+        quiz_progress = 0
+        
+        if total_assignments_available > 0:
+            assignment_progress = (submitted_assignments / total_assignments_available) * 50
+        
+        if total_quizzes > 0:
+            quiz_progress = (completed_quizzes / total_quizzes) * 50
+        
+        overall_progress = min(assignment_progress + quiz_progress, 100)
+        
+        # If no activities yet, set base progress
+        if overall_progress == 0:
+            if student_year:
+                if "first" in student_year.lower() or "1" in student_year:
+                    overall_progress = 20
+                elif "second" in student_year.lower() or "2" in student_year:
+                    overall_progress = 40
+                elif "third" in student_year.lower() or "3" in student_year:
+                    overall_progress = 60
+                elif "fourth" in student_year.lower() or "4" in student_year:
+                    overall_progress = 80
+                elif "fifth" in student_year.lower() or "5" in student_year:
+                    overall_progress = 95
+                else:
+                    overall_progress = 30
+        
+        # 7. Get subject performance - SIMPLIFIED
+        subject_performance = []
+        try:
+            if student_subjects:
+                for subject_data in student_subjects[:3]:  # Limit to 3 subjects
+                    subject_name = subject_data["subject_name"]
+                    
+                    # Assignment stats
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(DISTINCT s.id) as submitted,
+                            COALESCE(AVG(s.marks_obtained), 0) as avg_score
+                        FROM assignment_submissions s
+                        JOIN assignments a ON s.assignment_id = a.id
+                        WHERE s.student_id = %s 
+                        AND a.subject_name = %s
+                    """, (student_id, subject_name))
+                    
+                    assignment_stats = cursor.fetchone()
+                    
+                    # Quiz stats
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(DISTINCT sa.id) as attempted,
+                            COALESCE(AVG(sa.total_score), 0) as avg_score
+                        FROM student_attempts sa
+                        JOIN quizzes q ON sa.quiz_id = q.id
+                        WHERE sa.student_id = %s 
+                        AND q.subject_name = %s
+                    """, (student_id, subject_name))
+                    
+                    quiz_stats = cursor.fetchone()
+                    
+                    # Calculate average
+                    assignments_submitted = assignment_stats['submitted'] if assignment_stats else 0
+                    assignments_avg = float(assignment_stats['avg_score']) if assignment_stats and assignment_stats['avg_score'] else 0
+                    quizzes_attempted = quiz_stats['attempted'] if quiz_stats else 0
+                    quizzes_avg = float(quiz_stats['avg_score']) if quiz_stats and quiz_stats['avg_score'] else 0
+                    
+                    # Overall average
+                    if assignments_submitted > 0 or quizzes_attempted > 0:
+                        total_avg = 0
+                        count = 0
+                        if assignments_submitted > 0:
+                            total_avg += assignments_avg
+                            count += 1
+                        if quizzes_attempted > 0:
+                            total_avg += quizzes_avg
+                            count += 1
+                        average_score = total_avg / count
+                    else:
+                        average_score = 0
+                    
+                    subject_performance.append({
+                        "subject_name": subject_name,
+                        "assignments_submitted": assignments_submitted,
+                        "assignments_graded": assignments_submitted,  # Simplified
+                        "quizzes_attempted": quizzes_attempted,
+                        "average_score": round(average_score, 1),
+                        "performance_percentage": min(round(average_score, 1), 100)
+                    })
+        except Exception as e:
+            print(f"⚠️ Could not fetch subject performance: {e}")
+        
+        cursor.close()
+        db.close()
+        
+        print(f"🎉 Dashboard stats calculated successfully!")
+        print(f"   Overall progress: {overall_progress}%")
+        print(f"   Subjects: {len(subject_performance)}")
+        print(f"   Activities: {len(recent_activities)}")
+        
+        return {
+            "success": True,
+            "student_info": {
+                "userId": student_userId,
+                "fullName": student_name,
+                "current_year": student_year,
+                "email": student.get('email'),
+                "phone": student.get('phone')
+            },
+            "stats": {
+                "pending_assignments": pending_assignments,
+                "submitted_assignments": submitted_assignments,
+                "graded_assignments": graded_assignments,
+                "avg_assignment_score": round(avg_assignment_score, 1),
+                "upcoming_quizzes": upcoming_quizzes,
+                "total_quizzes": total_quizzes,
+                "completed_quizzes": completed_quizzes,
+                "avg_quiz_score": round(avg_quiz_score, 1),
+                "recent_notifications": 0,  # Placeholder
+                "overall_progress": round(overall_progress, 1)
+            },
+            "subject_performance": subject_performance,
+            "recent_activities": recent_activities,
+            "subjects_count": len(student_subjects)
+        }
+        
+    except Exception as e:
+        print(f"❌ ERROR in get_student_dashboard_stats: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+# ------------------- TEACHER DASHBOARD ENDPOINTS -------------------
+
+@app.get("/teacher/{teacher_userId}/dashboard/stats")
+def get_teacher_dashboard_stats(teacher_userId: str):
+    """Get comprehensive dashboard statistics for a teacher"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        print(f"🔍 TEACHER DASHBOARD: Getting stats for teacher: {teacher_userId}")
+        
+        # 1. Get teacher basic info
+        cursor.execute("""
+            SELECT id, userId, fullName, subject, email, phone
+            FROM users 
+            WHERE userId = %s AND role = 'teacher'
+        """, (teacher_userId,))
+        
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            print(f"❌ Teacher not found: {teacher_userId}")
+            cursor.close()
+            db.close()
+            return {"success": False, "error": "Teacher not found"}
+        
+        teacher_id = teacher['id']
+        teacher_name = teacher['fullName']
+        teacher_subjects = teacher.get('subject', '').split(',') if teacher.get('subject') else []
+        
+        print(f"✅ Found teacher: {teacher_name} (ID: {teacher_id})")
+        print(f"📚 Assigned subjects: {teacher_subjects}")
+        
+        # 2. Get assigned subjects data
+        assigned_subjects_data = []
+        for subject in teacher_subjects:
+            subject = subject.strip()
+            if subject:
+                assigned_subjects_data.append({"subject_name": subject})
+        
+        # If no subjects assigned, get from predefined based on name matching
+        if not assigned_subjects_data:
+            # Get all subjects for matching
+            all_subjects_set = set()
+            for year_subjects in predefined_subjects.values():
+                for subj in year_subjects:
+                    all_subjects_set.add(subj["subject_name"])
+            
+            # Try to match teacher's subject field
+            if teacher.get('subject'):
+                teacher_subj = teacher.get('subject')
+                for available_subj in all_subjects_set:
+                    if is_subject_match(teacher_subj, available_subj):
+                        assigned_subjects_data.append({"subject_name": available_subj})
+                        break
+        
+        print(f"📊 Processing {len(assigned_subjects_data)} assigned subjects")
+        
+        # 3. Get lectures statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_lectures,
+                COALESCE(SUM(downloads), 0) as total_downloads,
+                COALESCE(SUM(views), 0) as total_views,
+                COUNT(DISTINCT subject_name) as subjects_with_lectures
+            FROM lectures 
+            WHERE teacher_id = %s
+        """, (teacher_id,))
+        
+        lectures_stats = cursor.fetchone()
+        
+        # 4. Get assignments statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_assignments,
+                COALESCE(SUM(submissions), 0) as total_submissions,
+                COUNT(DISTINCT subject_name) as subjects_with_assignments,
+                SUM(CASE WHEN due_date < CURDATE() THEN 1 ELSE 0 END) as past_due,
+                SUM(CASE WHEN due_date >= CURDATE() THEN 1 ELSE 0 END) as upcoming
+            FROM assignments 
+            WHERE teacher_id = %s
+        """, (teacher_id,))
+        
+        assignments_stats = cursor.fetchone()
+        
+        # 5. Get quizzes statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_quizzes,
+                COALESCE(SUM(attempts), 0) as total_attempts,
+                COALESCE(AVG(average_score), 0) as avg_quiz_score,
+                COUNT(DISTINCT subject_name) as subjects_with_quizzes,
+                SUM(CASE WHEN is_published = 1 THEN 1 ELSE 0 END) as published,
+                SUM(CASE WHEN is_published = 0 THEN 1 ELSE 0 END) as draft
+            FROM quizzes 
+            WHERE teacher_id = %s
+        """, (teacher_id,))
+        
+        quizzes_stats = cursor.fetchone()
+        
+        # 6. Get materials statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_materials,
+                COALESCE(SUM(downloads), 0) as total_downloads,
+                COUNT(DISTINCT subject_name) as subjects_with_materials
+            FROM materials 
+            WHERE teacher_id = %s
+        """, (teacher_id,))
+        
+        materials_stats = cursor.fetchone()
+        
+        # 7. Get notifications statistics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_notifications,
+                COUNT(DISTINCT subject_name) as subjects_with_notifications
+            FROM notifications 
+            WHERE teacher_id = %s
+        """, (teacher_id,))
+        
+        notifications_stats = cursor.fetchone()
+        
+        # 8. Get recent student submissions (for grading)
+        cursor.execute("""
+            SELECT 
+                s.*,
+                a.title as assignment_title,
+                a.subject_name,
+                u.fullName as student_name,
+                u.userId as student_userId,
+                DATEDIFF(NOW(), s.submission_date) as days_ago
+            FROM assignment_submissions s
+            JOIN assignments a ON s.assignment_id = a.id
+            JOIN users u ON s.student_id = u.id
+            WHERE a.teacher_id = %s 
+            AND s.marks_obtained IS NULL
+            ORDER BY s.submission_date DESC
+            LIMIT 5
+        """, (teacher_id,))
+        
+        pending_grading = cursor.fetchall()
+        
+        # 9. Get recent quiz attempts
+        cursor.execute("""
+            SELECT 
+                sa.*,
+                q.title as quiz_title,
+                q.subject_name,
+                u.fullName as student_name,
+                u.userId as student_userId,
+                DATEDIFF(NOW(), sa.submitted_at) as days_ago
+            FROM student_attempts sa
+            JOIN quizzes q ON sa.quiz_id = q.id
+            JOIN users u ON sa.student_id = u.id
+            WHERE q.teacher_id = %s
+            ORDER BY sa.submitted_at DESC
+            LIMIT 5
+        """, (teacher_id,))
+        
+        recent_quiz_attempts = cursor.fetchall()
+        
+        # 10. Get upcoming assignment deadlines
+        cursor.execute("""
+            SELECT 
+                a.*,
+                DATEDIFF(a.due_date, CURDATE()) as days_left,
+                CASE 
+                    WHEN DATEDIFF(a.due_date, CURDATE()) = 0 THEN 'Due Today'
+                    WHEN DATEDIFF(a.due_date, CURDATE()) = 1 THEN 'Due Tomorrow'
+                    WHEN DATEDIFF(a.due_date, CURDATE()) < 7 THEN CONCAT('Due in ', DATEDIFF(a.due_date, CURDATE()), ' days')
+                    ELSE 'Upcoming'
+                END as deadline_text
+            FROM assignments a
+            WHERE a.teacher_id = %s 
+            AND a.due_date >= CURDATE()
+            ORDER BY a.due_date ASC
+            LIMIT 5
+        """, (teacher_id,))
+        
+        upcoming_deadlines = cursor.fetchall()
+        
+        # 11. Get subject-wise performance
+        subject_performance = []
+        for subject_data in assigned_subjects_data[:5]:  # Limit to 5 subjects
+            subject_name = subject_data["subject_name"]
+            
+            # Assignments for this subject
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_assignments,
+                    COALESCE(SUM(submissions), 0) as total_submissions,
+                    COALESCE(AVG(submissions), 0) as avg_submissions
+                FROM assignments 
+                WHERE teacher_id = %s 
+                AND subject_name = %s
+            """, (teacher_id, subject_name))
+            
+            assignment_stats = cursor.fetchone()
+            
+            # Quizzes for this subject
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_quizzes,
+                    COALESCE(SUM(attempts), 0) as total_attempts,
+                    COALESCE(AVG(average_score), 0) as avg_score
+                FROM quizzes 
+                WHERE teacher_id = %s 
+                AND subject_name = %s
+            """, (teacher_id, subject_name))
+            
+            quiz_stats = cursor.fetchone()
+            
+            # Lectures for this subject
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_lectures,
+                    COALESCE(SUM(downloads), 0) as total_downloads,
+                    COALESCE(AVG(downloads), 0) as avg_downloads
+                FROM lectures 
+                WHERE teacher_id = %s 
+                AND subject_name = %s
+            """, (teacher_id, subject_name))
+            
+            lecture_stats = cursor.fetchone()
+            
+            subject_performance.append({
+                "subject_name": subject_name,
+                "assignments": {
+                    "total": assignment_stats['total_assignments'] or 0,
+                    "submissions": assignment_stats['total_submissions'] or 0,
+                    "avg_submissions": round(float(assignment_stats['avg_submissions'] or 0), 1)
+                },
+                "quizzes": {
+                    "total": quiz_stats['total_quizzes'] or 0,
+                    "attempts": quiz_stats['total_attempts'] or 0,
+                    "avg_score": round(float(quiz_stats['avg_score'] or 0), 1)
+                },
+                "lectures": {
+                    "total": lecture_stats['total_lectures'] or 0,
+                    "downloads": lecture_stats['total_downloads'] or 0,
+                    "avg_downloads": round(float(lecture_stats['avg_downloads'] or 0), 1)
+                }
+            })
+        
+        cursor.close()
+        db.close()
+        
+        # Calculate engagement score
+        total_students = 30  # Assuming 30 students per class
+        
+        engagement_score = 0
+        if total_students > 0:
+            # Based on submissions and attempts
+            total_engagement = (
+                (assignments_stats['total_submissions'] or 0) +
+                (quizzes_stats['total_attempts'] or 0)
+            )
+            max_possible_engagement = (
+                (assignments_stats['total_assignments'] or 0) * total_students +
+                (quizzes_stats['total_quizzes'] or 0) * total_students
+            )
+            
+            if max_possible_engagement > 0:
+                engagement_score = (total_engagement / max_possible_engagement) * 100
+        
+        print(f"🎉 Teacher dashboard stats calculated successfully!")
+        print(f"   Engagement score: {engagement_score:.1f}%")
+        print(f"   Pending grading: {len(pending_grading)}")
+        
+        return {
+            "success": True,
+            "teacher_info": {
+                "userId": teacher_userId,
+                "fullName": teacher_name,
+                "subject": teacher.get('subject'),
+                "email": teacher.get('email'),
+                "phone": teacher.get('phone'),
+                "assigned_subjects": assigned_subjects_data
+            },
+            "stats": {
+                "lectures": {
+                    "total": lectures_stats['total_lectures'] or 0,
+                    "downloads": lectures_stats['total_downloads'] or 0,
+                    "views": lectures_stats['total_views'] or 0,
+                    "subjects": lectures_stats['subjects_with_lectures'] or 0
+                },
+                "assignments": {
+                    "total": assignments_stats['total_assignments'] or 0,
+                    "submissions": assignments_stats['total_submissions'] or 0,
+                    "subjects": assignments_stats['subjects_with_assignments'] or 0,
+                    "past_due": assignments_stats['past_due'] or 0,
+                    "upcoming": assignments_stats['upcoming'] or 0
+                },
+                "quizzes": {
+                    "total": quizzes_stats['total_quizzes'] or 0,
+                    "attempts": quizzes_stats['total_attempts'] or 0,
+                    "avg_score": round(float(quizzes_stats['avg_quiz_score'] or 0), 1),
+                    "subjects": quizzes_stats['subjects_with_quizzes'] or 0,
+                    "published": quizzes_stats['published'] or 0,
+                    "draft": quizzes_stats['draft'] or 0
+                },
+                "materials": {
+                    "total": materials_stats['total_materials'] or 0,
+                    "downloads": materials_stats['total_downloads'] or 0,
+                    "subjects": materials_stats['subjects_with_materials'] or 0
+                },
+                "notifications": {
+                    "total": notifications_stats['total_notifications'] or 0,
+                    "subjects": notifications_stats['subjects_with_notifications'] or 0
+                },
+                "engagement_score": round(engagement_score, 1)
+            },
+            "pending_grading": pending_grading,
+            "recent_quiz_attempts": recent_quiz_attempts,
+            "upcoming_deadlines": upcoming_deadlines,
+            "subject_performance": subject_performance
+        }
+        
+    except Exception as e:
+        print(f"❌ ERROR in get_teacher_dashboard_stats: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+@app.get("/teacher/{teacher_userId}/dashboard/quick-stats")
+def get_teacher_quick_stats(teacher_userId: str):
+    """Get quick stats for teacher dashboard header"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get teacher ID
+        cursor.execute("SELECT id FROM users WHERE userId = %s AND role = 'teacher'", (teacher_userId,))
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            return {"success": False, "error": "Teacher not found"}
+        
+        teacher_id = teacher['id']
+        
+        # Get counts
+        cursor.execute("SELECT COUNT(*) as lectures FROM lectures WHERE teacher_id = %s", (teacher_id,))
+        lectures = cursor.fetchone()
+        
+        cursor.execute("SELECT COUNT(*) as assignments FROM assignments WHERE teacher_id = %s", (teacher_id,))
+        assignments = cursor.fetchone()
+        
+        cursor.execute("SELECT COUNT(*) as quizzes FROM quizzes WHERE teacher_id = %s", (teacher_id,))
+        quizzes = cursor.fetchone()
+        
+        cursor.execute("""
+            SELECT COUNT(*) as pending 
+            FROM assignment_submissions s
+            JOIN assignments a ON s.assignment_id = a.id
+            WHERE a.teacher_id = %s AND s.marks_obtained IS NULL
+        """, (teacher_id,))
+        
+        pending = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "quick_stats": {
+                "lectures": lectures['lectures'] or 0,
+                "assignments": assignments['assignments'] or 0,
+                "quizzes": quizzes['quizzes'] or 0,
+                "pending_grading": pending['pending'] or 0
+            }
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/teacher/{teacher_userId}/dashboard/recent-activity")
+def get_teacher_recent_activity(teacher_userId: str, limit: int = 10):
+    """Get recent activity for teacher"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        # Get teacher ID
+        cursor.execute("SELECT id FROM users WHERE userId = %s AND role = 'teacher'", (teacher_userId,))
+        teacher = cursor.fetchone()
+        
+        if not teacher:
+            return {"success": False, "error": "Teacher not found"}
+        
+        teacher_id = teacher['id']
+        
+        # Get combined recent activity
+        query = """
+            (SELECT 
+                'assignment_submission' as activity_type,
+                '📝 New Submission' as title,
+                a.title as description,
+                a.subject_name,
+                s.submission_date as timestamp,
+                u.fullName as student_name,
+                s.id as item_id,
+                'assignment' as item_type
+            FROM assignment_submissions s
+            JOIN assignments a ON s.assignment_id = a.id
+            JOIN users u ON s.student_id = u.id
+            WHERE a.teacher_id = %s
+            ORDER BY s.submission_date DESC
+            LIMIT 5)
+            
+            UNION ALL
+            
+            (SELECT 
+                'quiz_attempt' as activity_type,
+                '📊 Quiz Attempt' as title,
+                q.title as description,
+                q.subject_name,
+                sa.submitted_at as timestamp,
+                u.fullName as student_name,
+                sa.id as item_id,
+                'quiz' as item_type
+            FROM student_attempts sa
+            JOIN quizzes q ON sa.quiz_id = q.id
+            JOIN users u ON sa.student_id = u.id
+            WHERE q.teacher_id = %s
+            ORDER BY sa.submitted_at DESC
+            LIMIT 5)
+            
+            UNION ALL
+            
+            (SELECT 
+                'assignment_created' as activity_type,
+                '📝 Assignment Created' as title,
+                title as description,
+                subject_name,
+                created_date as timestamp,
+                NULL as student_name,
+                id as item_id,
+                'assignment' as item_type
+            FROM assignments 
+            WHERE teacher_id = %s
+            ORDER BY created_date DESC
+            LIMIT 5)
+            
+            ORDER BY timestamp DESC
+            LIMIT %s
+        """
+        
+        cursor.execute(query, (teacher_id, teacher_id, teacher_id, limit))
+        activities = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        return {
+            "success": True,
+            "activities": activities,
+            "total_activities": len(activities)
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}

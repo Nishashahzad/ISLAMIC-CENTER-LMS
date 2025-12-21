@@ -36,17 +36,25 @@ const StudentMaterials = () => {
     navigate(`/student-dashboard/${userId}/courses`);
   };
 
-  const handleDownload = async (material) => {
-    try {
-      await fetch(`http://localhost:8000/materials/${material.id}/download`, {
-        method: 'POST'
-      });
-      
-      window.open(`http://localhost:8000${material.file_path}`, '_blank');
-    } catch (error) {
-      console.error('Error downloading file:', error);
-    }
-  };
+ const handleDownload = async (material) => {
+  try {
+    // Optional: increment download count
+    await fetch(`http://localhost:8000/materials/${material.id}/download`, { method: 'POST' });
+
+    // Ensure leading slash
+    const filePath = material.file_path.startsWith('/') ? material.file_path : `/${material.file_path}`;
+    const downloadUrl = `http://localhost:8000${filePath}`;
+
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.setAttribute('download', material.title || `material_${material.id}`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+  }
+};
 
   if (loading) return <div className="loading">Loading materials...</div>;
 

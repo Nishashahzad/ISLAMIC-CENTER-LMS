@@ -240,64 +240,121 @@
 
 
 
-
-
-/* -------------------- */
-/* Admin profile */  
-/* -------------------- */
+/* TeacherProfile.css */
 
 .profile-container {
-  max-width: 800px;
+  max-width: 900px;
   margin: 0 auto;
-  padding: 20px;
-  font-family: Arial, sans-serif;
+  padding: 30px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  min-height: 100vh;
 }
 
 .profile-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid #e0e0e0;
+  margin-bottom: 40px;
+  padding: 25px;
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  border-left: 6px solid #2c3e50;
 }
 
 .profile-header h1 {
-  color: #333;
+  color: #2c3e50;
   margin: 0;
+  font-size: 2.2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #2c3e50, #3498db);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .role-badge {
-  background: #4CAF50;
+  background: linear-gradient(135deg, #2c3e50, #4a5fc1);
   color: white;
-  padding: 5px 15px;
-  border-radius: 20px;
-  font-size: 14px;
-  font-weight: bold;
+  padding: 8px 25px;
+  border-radius: 25px;
+  font-size: 1rem;
+  font-weight: 600;
   text-transform: capitalize;
+  letter-spacing: 0.5px;
+  box-shadow: 0 3px 10px rgba(42, 56, 85, 0.3);
+}
+
+/* Real Data Indicator */
+.real-data-indicator {
+  background: linear-gradient(135deg, #d4edda, #c3e6cb);
+  border: 1px solid #c3e6cb;
+  border-radius: 12px;
+  padding: 15px 20px;
+  margin: 0 0 25px 0;
+  color: #155724;
+  box-shadow: 0 3px 10px rgba(212, 237, 218, 0.3);
+}
+
+.real-data-indicator strong {
+  font-size: 1.1rem;
+  display: block;
+  margin-bottom: 8px;
+  color: #155724;
+}
+
+.real-data-indicator br {
+  display: block;
+  margin: 5px 0;
+  content: "";
+}
+
+.profile-content {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
 }
 
 .profile-section {
   background: white;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  border-radius: 15px;
+  padding: 30px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  transition: transform 0.3s ease;
+  border: 1px solid #e9ecef;
+}
+
+.profile-section:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
 }
 
 .profile-section h2 {
-  color: #555;
-  margin-top: 0;
-  margin-bottom: 20px;
-  font-size: 1.2em;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 10px;
+  color: #2c3e50;
+  margin: 0 0 25px 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  padding-bottom: 15px;
+  border-bottom: 3px solid #e9ecef;
+  position: relative;
+}
+
+.profile-section h2:after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 80px;
+  height: 3px;
+  background: linear-gradient(90deg, #3498db, #2c3e50);
+  border-radius: 3px;
 }
 
 .info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 15px;
+  gap: 20px;
 }
 
 .info-item {
@@ -310,88 +367,316 @@
 }
 
 .info-item label {
-  font-weight: bold;
-  color: #666;
-  margin-bottom: 5px;
-  font-size: 0.9em;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 8px;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .info-item span {
-  color: #333;
-  padding: 8px 12px;
-  background: #f9f9f9;
-  border-radius: 4px;
-  border-left: 3px solid #4CAF50;
+  color: #2c3e50;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+  font-size: 1.05rem;
+  transition: all 0.3s ease;
+}
+
+.info-item span:hover {
+  background: #edf2f7;
+  transform: translateX(5px);
 }
 
 .role-text {
   text-transform: capitalize;
-  font-weight: bold;
+  font-weight: 600;
+  color: #2c3e50;
+  background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+  border-left-color: #2196f3;
+}
+
+/* Special styling for different sections */
+.profile-section:nth-child(2) .info-item span {
+  border-left-color: #2ecc71;
+}
+
+.profile-section:nth-child(3) .info-item span {
+  border-left-color: #9b59b6;
+}
+
+.profile-section:nth-child(4) .info-item span {
+  border-left-color: #e74c3c;
 }
 
 .profile-actions {
   display: flex;
-  gap: 15px;
+  gap: 20px;
   justify-content: center;
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 1px solid #e0e0e0;
+  margin-top: 40px;
+  padding: 30px;
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
 }
 
 .edit-btn, .change-password-btn {
-  padding: 10px 20px;
+  padding: 14px 30px;
   border: none;
-  border-radius: 5px;
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.3s;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 180px;
 }
 
 .edit-btn {
-  background: #4CAF50;
+  background: linear-gradient(135deg, #3498db, #2980b9);
   color: white;
+  box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
 }
 
 .edit-btn:hover {
-  background: #45a049;
+  background: linear-gradient(135deg, #2980b9, #2471a3);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
 }
 
 .change-password-btn {
-  background: #2196F3;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
   color: white;
+  box-shadow: 0 4px 15px rgba(46, 204, 113, 0.3);
 }
 
 .change-password-btn:hover {
-  background: #0b7dda;
+  background: linear-gradient(135deg, #27ae60, #219653);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(46, 204, 113, 0.4);
 }
 
+/* Loading State */
+.loading-message {
+  text-align: center;
+  padding: 60px 30px;
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+
+.loading-message h2 {
+  color: #2c3e50;
+  margin-bottom: 20px;
+  font-size: 1.8rem;
+}
+
+.loading-message p {
+  color: #7f8c8d;
+  margin-bottom: 30px;
+  font-size: 1.1rem;
+}
+
+/* Error State */
 .error-message {
   text-align: center;
-  padding: 50px;
-  color: #666;
+  padding: 60px 30px;
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  border: 2px solid #ffeaa7;
 }
 
 .error-message h2 {
-  color: #f44336;
+  color: #e74c3c;
+  margin-bottom: 15px;
+  font-size: 1.8rem;
+}
+
+.error-message p {
+  color: #7f8c8d;
+  margin-bottom: 25px;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+/* Profile Actions Container */
+.profile-actions-container {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-top: 25px;
+}
+
+/* Print-specific styles */
+@media print {
+  .profile-container {
+    background: white;
+    padding: 0;
+  }
+  
+  .profile-section {
+    box-shadow: none;
+    border: 1px solid #ddd;
+    page-break-inside: avoid;
+  }
+  
+  .profile-actions,
+  .edit-btn,
+  .change-password-btn,
+  .real-data-indicator {
+    display: none;
+  }
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
   .profile-container {
-    padding: 10px;
+    padding: 15px;
   }
   
   .profile-header {
     flex-direction: column;
-    gap: 10px;
+    gap: 15px;
     text-align: center;
+    padding: 20px;
+  }
+  
+  .profile-header h1 {
+    font-size: 1.8rem;
+  }
+  
+  .profile-section {
+    padding: 20px;
   }
   
   .info-grid {
     grid-template-columns: 1fr;
+    gap: 15px;
   }
   
   .profile-actions {
     flex-direction: column;
+    padding: 20px;
   }
+  
+  .edit-btn, .change-password-btn {
+    width: 100%;
+  }
+  
+  .info-item span {
+    padding: 10px 14px;
+    font-size: 1rem;
+  }
+  
+  .profile-section h2 {
+    font-size: 1.3rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .profile-header h1 {
+    font-size: 1.5rem;
+  }
+  
+  .role-badge {
+    font-size: 0.9rem;
+    padding: 6px 20px;
+  }
+  
+  .profile-section {
+    padding: 15px;
+  }
+  
+  .edit-btn, .change-password-btn {
+    padding: 12px 20px;
+    font-size: 0.95rem;
+  }
+}
+
+/* Animation for data loading */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.profile-section {
+  animation: fadeIn 0.6s ease-out;
+}
+
+.profile-section:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.profile-section:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.profile-section:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.profile-section:nth-child(4) {
+  animation-delay: 0.4s;
+}
+
+/* Hover effects for better UX */
+.info-item:hover label {
+  color: #3498db;
+}
+
+/* Highlight important fields */
+.info-item:nth-child(1) span {
+  font-weight: 600;
+  color: #2c3e50;
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+}
+
+.info-item:nth-child(2) span {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+/* Teacher-specific styles */
+.teacher-profile-highlight {
+  background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+  border: 1px solid #ffeaa7;
+  border-radius: 10px;
+  padding: 15px;
+  margin: 10px 0;
+}
+
+.teacher-profile-highlight .info-item span {
+  background: white;
+  border-left-color: #f39c12;
+}
+
+/* Status indicators */
+.status-indicator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-active {
+  background: #2ecc71;
+  box-shadow: 0 0 8px #2ecc71;
+}
+
+.status-inactive {
+  background: #e74c3c;
+  box-shadow: 0 0 8px #e74c3c;
 }

@@ -43,12 +43,6 @@ const AdminLayout = () => {
               <NavLink to="AdminCourses">Courses</NavLink>
             </li>
             <li className="admin-nav-item">
-              <NavLink to="enrollments">Enrollments</NavLink>
-            </li>
-            <li className="admin-nav-item">
-              <NavLink to="reports">Reports</NavLink>
-            </li>
-            <li className="admin-nav-item">
               <NavLink to="payments">Payments</NavLink>
             </li>
 
@@ -60,9 +54,6 @@ const AdminLayout = () => {
               Settings ▾
               {showSettings && (
                 <ul className="admin-dropdown">
-                  <li className="admin-dropdown-item">
-                    <NavLink to="profile">My Profile</NavLink>
-                  </li>
                   <li className="admin-dropdown-item">
                     <button onClick={handleLogout} className="logout-btn">
                       Logout
@@ -82,9 +73,6 @@ const AdminLayout = () => {
           />
           {showSettings && (
             <ul className="settings-dropdown">
-              <li>
-                <NavLink to="profile">My Profile</NavLink>
-              </li>
               <li>
                 <button onClick={handleLogout} className="logout-btn">
                   Logout
@@ -114,18 +102,8 @@ const AdminLayout = () => {
             </NavLink>
           </li>
           <li>
-            <NavLink to="courses">
+            <NavLink to="AdminCourses">
               <FaBook />
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="enrollments">
-              <FaClipboardList />
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="reports">
-              <FaChartBar />
             </NavLink>
           </li>
           <li>
