@@ -42,7 +42,7 @@ const Teachers = () => {
   // Fetch teachers from DB
   const fetchTeachers = async () => {
     try {
-      const response = await fetch("http://localhost/islamiccenter-api/users.php?role=teacher");
+      const response = await fetch("http://localhost:8000/users.php?role=teacher");
       if (!response.ok) throw new Error('Network response was not ok');
       const data = await response.json();
       console.log("Fetched teachers:", data);
@@ -260,7 +260,7 @@ const Teachers = () => {
 
       console.log("Updating teacher:", updatedTeacher);
 
-      fetch("http://localhost/islamiccenter-api/users.php", {
+      fetch("http://localhost:8000/users.php", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedTeacher),
@@ -296,7 +296,7 @@ const Teachers = () => {
 
       console.log("Creating teacher:", newTeacher);
 
-      fetch("http://localhost/islamiccenter-api/users.php", {
+      fetch("http://localhost:8000/users.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newTeacher),
@@ -363,7 +363,7 @@ const Teachers = () => {
 
     if (!window.confirm("Are you sure you want to delete this teacher?")) return;
 
-    fetch(`http://localhost/islamiccenter-api/users.php?id=${teacher.id}`, {
+    fetch(`http://localhost:8000/users.php?id=${teacher.id}`, {
       method: "DELETE",
     })
       .then((res) => res.json())

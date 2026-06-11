@@ -25,7 +25,7 @@ const TeacherProfile = () => {
         if (useridToFetch) {
           console.log("🌐 Fetching REAL teacher data from API with userid:", useridToFetch);
           
-          const apiUrl = `http://localhost/islamiccenter-api/users.php?userid=${useridToFetch}`;
+          const apiUrl = `http://localhost:8000/users.php?userid=${useridToFetch}`;
           console.log("📡 API URL:", apiUrl);
           
           const response = await fetch(apiUrl);
@@ -75,7 +75,7 @@ const TeacherProfile = () => {
       
       console.log("🧪 Testing API with userid:", useridToTest);
       
-      const testUrl = `http://localhost/islamiccenter-api/users.php?userid=${useridToTest}`;
+      const testUrl = `http://localhost:8000/users.php?userid=${useridToTest}`;
       const response = await fetch(testUrl);
       const data = await response.json();
       console.log("🧪 API Test Result:", data);

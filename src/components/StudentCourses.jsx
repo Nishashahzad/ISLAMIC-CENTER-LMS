@@ -22,19 +22,22 @@ const StudentCourses = () => {
       const studentId = studentData.userid || studentData.id;
       
       try {
-        const response = await fetch(`http://localhost/islamiccenter-api/users.php?userid=${studentId}`);
-        if (!response.ok) throw new Error('Failed to fetch student data');
-        
-        const completeStudentData = await response.json();
-        setStudentWithYear(completeStudentData);
-        
-        if (completeStudentData.current_year) {
-          await fetchSubjectsForYear(completeStudentData.current_year);
-        } else {
-          setError("Student does not have a year assigned in the database");
-          setLoading(false);
-        }
-      } catch (err) {
+  const response = await fetch(`http://localhost:8000/users?userId=${studentId}`);
+  if (!response.ok) throw new Error('Failed to fetch student data');
+  
+  const result = await response.json();
+  // Handle both response formats: {users: [...]} or direct object
+  const completeStudentData = result.users ? result.users[0] : result;
+  
+  setStudentWithYear(completeStudentData);
+  
+  if (completeStudentData.current_year) {
+    await fetchSubjectsForYear(completeStudentData.current_year);
+  } else {
+    setError("Student does not have a year assigned in the database");
+    setLoading(false);
+  }
+} catch (err) {
         console.error("Error fetching student data:", err);
         setError("Failed to load student information");
         setLoading(false);

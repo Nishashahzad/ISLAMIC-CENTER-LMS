@@ -1,4 +1,6 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request, Response
+from fastapi import Request
+from fastapi import FastAPI, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 import mysql.connector
@@ -18,7 +20,6 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 import json
-
 app = FastAPI()
 
 # Create uploads directory
@@ -41,6 +42,189 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add this model class (put it near the top with other models)
+class LoginRequest(BaseModel):
+    userId: str
+    password: str
+
+# Add these after your existing code, before the last `if __name__ == "__main__":`
+
+# ============ PHP COMPATIBLE ENDPOINTS (for admin panel) ============
+
+# Replace your entire users.php GET endpoint with this:
+@app.get("/users.php")
+async def get_users_php(request: Request):
+    """PHP compatible endpoint for getting users"""
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        role = request.query_params.get("role")
+        user_id = request.query_params.get("id")
+        userid = request.query_params.get("userid")
+        
+        if user_id:
+            cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+            result = cursor.fetchone()
+            if result:
+                result = [result]
+        elif userid:
+            cursor.execute("SELECT * FROM users WHERE userId = %s", (userid,))
+            result = cursor.fetchone()
+            if result:
+                result = [result]
+        elif role:
+            cursor.execute("SELECT * FROM users WHERE role = %s", (role,))
+            result = cursor.fetchall()
+        else:
+            cursor.execute("SELECT * FROM users")
+            result = cursor.fetchall()
+        
+        cursor.close()
+        db.close()
+        
+        # Convert field names
+        if result:
+            if isinstance(result, dict):
+                result = [result]
+            for item in result:
+                if 'userId' in item:
+                    item['userid'] = item['userId']
+                if 'dob' in item and item['dob']:
+                    item['dob'] = str(item['dob'])
+        
+        return result if result else []
+        
+    except Exception as e:
+        return {"error": str(e), "success": False}
+
+# Replace your POST endpoint with this:
+@app.post("/users.php")
+async def create_user_php(request: Request):
+    """PHP compatible endpoint for creating user"""
+    try:
+        data = await request.json()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        userid = data.get("userid") or data.get("userId")
+        password = data.get("password")
+        fullName = data.get("fullName")
+        dob = data.get("dob")
+        phone = data.get("phone")
+        email = data.get("email")
+        education = data.get("education")
+        address = data.get("address")
+        current_year = data.get("current_year")
+        role = data.get("role")
+        qualification = data.get("qualification")
+        subject = data.get("subject")
+        
+        cursor.execute("""
+            INSERT INTO users 
+            (userId, password, fullName, dob, phone, email, education, 
+             qualification, subject, address, current_year, role)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (userid, password, fullName, dob, phone, email, education,
+              qualification, subject, address, current_year, role))
+        
+        db.commit()
+        inserted_id = cursor.lastrowid
+        cursor.close()
+        db.close()
+        
+        return {"success": True, "insert_id": inserted_id}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# Replace your PUT endpoint with this:
+@app.put("/users.php")
+async def update_user_php(request: Request):
+    """PHP compatible endpoint for updating user"""
+    try:
+        data = await request.json()
+        
+        db = get_db()
+        cursor = db.cursor()
+        
+        user_id = data.get("id")
+        if not user_id:
+            return {"success": False, "error": "Missing user ID"}
+        
+        cursor.execute("""
+            UPDATE users 
+            SET fullName = %s, dob = %s, phone = %s, email = %s,
+                education = %s, qualification = %s, subject = %s,
+                address = %s, current_year = %s
+            WHERE id = %s
+        """, (
+            data.get("fullName"), data.get("dob"), data.get("phone"),
+            data.get("email"), data.get("education"), data.get("qualification"),
+            data.get("subject"), data.get("address"), data.get("current_year"),
+            user_id
+        ))
+        
+        db.commit()
+        affected = cursor.rowcount
+        cursor.close()
+        db.close()
+        
+        return {"success": True, "affected_rows": affected}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# Replace your DELETE endpoint with this:
+@app.delete("/users.php")
+async def delete_user_php(request: Request):
+    """PHP compatible endpoint for deleting user"""
+    try:
+        user_id = request.query_params.get("id")
+        
+        if not user_id:
+            return {"success": False, "error": "Missing user ID"}
+        
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        db.commit()
+        affected = cursor.rowcount
+        cursor.close()
+        db.close()
+        
+        return {"success": True, "affected_rows": affected}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+# Add this login endpoint after CORS configuration
+@app.post("/login")
+def login(login_data: LoginRequest):
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+        
+        query = "SELECT * FROM users WHERE userId = %s AND password = %s"
+        cursor.execute(query, (login_data.userId, login_data.password))
+        user = cursor.fetchone()
+        
+        cursor.close()
+        db.close()
+        
+        if user:
+            return {
+                "success": True,
+                "role": user["role"],
+                "fullName": user["fullName"],
+                "userId": user["userId"]
+            }
+        else:
+            return {"success": False, "message": "Invalid User ID or Password"}
+            
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 # ✅ Database connection function
 def get_db():

@@ -40,7 +40,7 @@ const Students = () => {
 
   // Fetch students
   const fetchStudents = () => {
-    fetch("http://localhost/islamiccenter-api/users.php?role=student")
+    fetch("http://localhost:8000/users.php?role=student")
       .then((res) => res.json())
       .then((data) => setStudents(data))
       .catch((err) => console.error("Error fetching students:", err));
@@ -201,7 +201,7 @@ const Students = () => {
 
       console.log("Sending UPDATE data:", updatedStudent);
 
-      fetch("http://localhost/islamiccenter-api/users.php", {
+      fetch("http://localhost:8000/users.php", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedStudent),
@@ -232,7 +232,7 @@ const Students = () => {
 
       console.log("Sending CREATE data:", newStudent);
 
-      fetch("http://localhost/islamiccenter-api/users.php", {
+      fetch("http://localhost:8000/users.php", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newStudent),
@@ -243,6 +243,7 @@ const Students = () => {
           if (result.success) {
             fetchStudents();
             resetForm();
+            alert(`Student created successfully!\n\nUser ID: ${newStudent.userid}\nPassword: ${newStudent.password}`);
           } else {
             alert("Error creating student: " + (result.error || "Unknown error"));
           }
@@ -286,7 +287,7 @@ const Students = () => {
     const studentId = students[index].id;
     if (!window.confirm("Are you sure you want to delete this student?")) return;
     
-    fetch(`http://localhost/islamiccenter-api/users.php?id=${studentId}`, {
+    fetch(`http://localhost:8000/users.php?id=${studentId}`, {
       method: "DELETE",
     })
       .then((res) => res.json())
